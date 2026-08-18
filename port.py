@@ -317,12 +317,14 @@ def tag_incremental(prod_bp):
 
 
 def load_device(name):
-    path = os.path.join(HERE, "devices", name + ".yml")
+    ddir = os.path.join(HERE, "devices", name)
+    path = os.path.join(ddir, "device.yml")
     if not os.path.exists(path):
-        avail = ", ".join(sorted(f[:-4] for f in os.listdir(os.path.join(HERE, "devices"))
-                                 if f.endswith(".yml")))
+        base = os.path.join(HERE, "devices")
+        avail = ", ".join(sorted(d for d in os.listdir(base)
+                                 if os.path.exists(os.path.join(base, d, "device.yml"))))
         die("unknown device '%s' (available: %s)" % (name, avail))
-    cfg = {}
+    cfg = {"_dir": ddir}
     for line in read_lines(path):
         s = line.strip()
         if not s or s.startswith("#") or ":" not in s:
@@ -332,11 +334,37 @@ def load_device(name):
     return cfg
 
 
+def _detect_device(work):
+    vbp = os.path.join(work, "vendor", "build.prop")
+    for line in (read_lines(vbp) if os.path.exists(vbp) else []):
+        for key in ("ro.product.vendor.device=", "ro.product.device="):
+            if line.startswith(key):
+                return line.split("=", 1)[1].strip()
+    return None
+
+
 def apply_device(work, cfg):
-    """Apply the device-specific values (FOD geometry, density, resolution,
-    marketname) over the shared OnePlus 13 baseline, and name the
-    device_features file after the target's ro.product.device."""
+    """Apply the device folder: its displayconfig and device_features overlay
+    plus the scalar overrides (FOD geometry, density, resolution, marketname).
+    device_features is named after the port's detected ro.product.device."""
     log("[DEVICE] %s (%s)" % (cfg.get("name", "?"), cfg.get("model", "?")))
+    ddir = cfg["_dir"]
+
+    dc_src = os.path.join(ddir, "displayconfig")
+    if os.path.isdir(dc_src):
+        dc_dst = os.path.join(work, "product", "etc", "displayconfig")
+        os.makedirs(dc_dst, exist_ok=True)
+        for f in os.listdir(dc_src):
+            shutil.copy2(os.path.join(dc_src, f), os.path.join(dc_dst, f))
+
+    df_src = os.path.join(ddir, "device_features.xml")
+    dev = _detect_device(work)
+    if os.path.exists(df_src) and dev:
+        dfd = os.path.join(work, "product", "etc", "device_features")
+        os.makedirs(dfd, exist_ok=True)
+        shutil.copy2(df_src, os.path.join(dfd, dev + ".xml"))
+        log("    device_features -> %s.xml" % dev)
+
     vbp = os.path.join(work, "vendor", "build.prop")
     prop_set(vbp, "persist.vendor.sys.fp.fod.location.X_Y", cfg.get("fod_location"))
     prop_set(vbp, "persist.vendor.sys.fp.fod.size.width_height", cfg.get("fod_size"))
@@ -347,24 +375,6 @@ def apply_device(work, cfg):
     prop_set(pbp, "ro.sf.lcd_density", cfg.get("density"))
     prop_set(os.path.join(work, "odm", "build.prop"),
              "ro.product.odm.marketname", cfg.get("marketname"))
-    _name_device_features(work)
-
-
-def _name_device_features(work):
-    vbp = os.path.join(work, "vendor", "build.prop")
-    dev = None
-    for line in (read_lines(vbp) if os.path.exists(vbp) else []):
-        for key in ("ro.product.vendor.device=", "ro.product.device="):
-            if line.startswith(key):
-                dev = line.split("=", 1)[1].strip()
-                break
-        if dev:
-            break
-    dfdir = os.path.join(work, "product", "etc", "device_features")
-    src = os.path.join(dfdir, "ossi.xml")  # the RES device_features template
-    if dev and os.path.exists(src) and not os.path.exists(os.path.join(dfdir, dev + ".xml")):
-        shutil.copy2(src, os.path.join(dfdir, dev + ".xml"))
-        log("    device_features -> %s.xml" % dev)
 
 
 def ensure_camera(res_dir, gdrive_id):

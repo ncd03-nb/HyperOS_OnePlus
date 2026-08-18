@@ -80,7 +80,16 @@ the secret is missing or the upload fails, the build still succeeds.
 
 ## Adding a device
 
-Each device is a small file in `devices/<codename>.yml`:
+Each device is a folder under `devices/<codename>/`:
+
+```text
+devices/PJZ110/
+  device.yml                                  # scalar values (below)
+  device_features.xml                         # copied to <ro.product.device>.xml
+  displayconfig/display_id_<panelid>.xml      # brightness / refresh / density map
+```
+
+`device.yml`:
 
 ```yaml
 name: OnePlus 13
@@ -95,12 +104,14 @@ marketname: 一加 13
 camera_gdrive_id: <google drive id of that device's MiuiCamera.zip>
 ```
 
-The porter applies these over the shared baseline: the FOD props, density and
-resolution go into the right build.props, the marketname into the odm
-attestation, and the `device_features` file is named after the port's detected
-`ro.product.device`. To add a device, drop in a new yml with that device's
-**verified** values (FOD coords and display config really are panel-specific —
-copying another device's values is what "untested" means).
+The porter overlays the folder's `displayconfig` and `device_features.xml` (the
+latter renamed to the port's detected `ro.product.device`), then writes the
+scalar values into the right build.props (FOD, density and resolution) and the
+odm attestation (marketname). To add a device, copy an existing folder and drop
+in that device's **verified** values — FOD coordinates and the displayconfig are
+panel-specific, and the displayconfig filename must be that device's real panel
+id (read it from a dump). Reusing another device's values is what "untested"
+means.
 
 ## What it fixes
 

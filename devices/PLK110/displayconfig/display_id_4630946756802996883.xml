@@ -1,0 +1,141 @@
+<?xml version='1.0' encoding='utf-8' standalone='yes' ?>
+<!--
+DisplayDeviceConfig adapted for the OnePlus 15 (untested).
+
+IMPORTANT: this file is still named with the OnePlus 13 panel id. DisplayManager
+matches display_id_<physicalId>.xml by the panel's physical id, so on a real
+OnePlus 15 this file must be renamed to that device's display id (read it from an
+OnePlus 15 dump / logcat) or the refresh-rate and light-sensor blocks below will
+not bind.
+
+Brightness curve and HBM values are kept identical to the Xiaomi product profile
+that the rest of the HyperOS display stack already expects; only the panel
+geometry, refresh rate and light sensor blocks are device-specific.
+-->
+<displayConfiguration>
+    <densityMapping>
+        <!-- OnePlus 15 native 1272x2772 -->
+        <density>
+            <height>2772</height>
+            <width>1272</width>
+            <density>530</density>
+        </density>
+    </densityMapping>
+
+    <!-- Global Brightness-Nit mapping -->
+    <screenBrightnessMap>
+        <point>
+            <value>0.000366256</value>
+            <nits>1.000</nits>
+        </point>
+        <point>
+            <value>0.001465201</value>
+            <nits>2.000</nits>
+        </point>
+        <point>
+            <value>0.002442002</value>
+            <nits>2.024</nits>
+        </point>
+        <point>
+            <value>0.004884005</value>
+            <nits>2.086</nits>
+        </point>
+        <point>
+            <value>0.009768010</value>
+            <nits>2.215</nits>
+        </point>
+        <point>
+            <value>0.019536020</value>
+            <nits>2.497</nits>
+        </point>
+        <point>
+            <value>0.036630037</value>
+            <nits>3.079</nits>
+        </point>
+        <point>
+            <value>0.073260073</value>
+            <nits>4.826</nits>
+        </point>
+        <point>
+            <value>0.122100122</value>
+            <nits>8.785</nits>
+        </point>
+        <point>
+            <value>0.195360195</value>
+            <nits>21.979</nits>
+        </point>
+        <point>
+            <value>0.293040293</value>
+            <nits>53.629</nits>
+        </point>
+        <point>
+            <value>0.415140415</value>
+            <nits>115.395</nits>
+        </point>
+        <point>
+            <value>0.537240537</value>
+            <nits>203.484</nits>
+        </point>
+        <point>
+            <value>0.683760684</value>
+            <nits>345.898</nits>
+        </point>
+        <point>
+            <value>0.830280830</value>
+            <nits>530.217</nits>
+        </point>
+        <point>
+            <value>1.000000000</value>
+            <nits>798.286</nits>
+        </point>
+    </screenBrightnessMap>
+
+    <!-- Refresh rate: the panel exposes 120/90/60 at both resolutions.
+         Without this block defaultPeakRefreshRate falls back to 60. -->
+    <refreshRate>
+        <defaultRefreshRate>120</defaultRefreshRate>
+        <defaultPeakRefreshRate>120</defaultPeakRefreshRate>
+    </refreshRate>
+
+    <!-- Bind the OnePlus ambient light sensor (tcs3720, type 5 / android.sensor.light).
+         An empty <name> matches the default sensor of that type. -->
+    <ambientLightSensor>
+        <type>android.sensor.light</type>
+        <name></name>
+        <refreshRateRange>
+            <minimum>0</minimum>
+            <maximum>120</maximum>
+        </refreshRateRange>
+    </ambientLightSensor>
+
+    <!-- root node for HBM-->
+    <highBrightnessMode enabled="true">
+        <!-- Transition point brightness from normal to HBM mode -->
+        <transitionPoint>0.374862654</transitionPoint>
+        <!-- Minimum lux to enter HBM -->
+        <minimumLux>4475</minimumLux>
+        <!-- Time limitation for HBM-->
+        <timing>
+            <timeWindowSecs>0</timeWindowSecs>
+            <timeMaxSecs>0</timeMaxSecs>
+            <timeMinSecs>0</timeMinSecs>
+        </timing>
+        <!-- Thermal limitation for HBM -->
+        <thermalStatusLimit>critical</thermalStatusLimit>
+        <!-- Low power mode limitation for HBM -->
+        <allowInLowPowerMode>true</allowInLowPowerMode>
+        <minimumHdrPercentOfScreen>0</minimumHdrPercentOfScreen>
+        <sdrHdrRatioMap>
+            <point>
+                <sdrNits>2.0</sdrNits>
+                <hdrRatio>8.0</hdrRatio>
+            </point>
+            <point>
+                <sdrNits>1800.0</sdrNits>
+                <hdrRatio>8.0</hdrRatio>
+            </point>
+        </sdrHdrRatioMap>
+    </highBrightnessMode>
+    <ambientLightHorizonLong>3000</ambientLightHorizonLong>
+    <ambientLightHorizonShort>1000</ambientLightHorizonShort>
+</displayConfiguration>

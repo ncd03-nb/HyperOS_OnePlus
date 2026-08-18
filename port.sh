@@ -45,7 +45,7 @@ while [ $# -gt 0 ]; do
     esac
 done
 [ -n "$DEVICE" ] || die "--device is required (a name under devices/, e.g. PJZ110 or PLK110)"
-[ -f "$HERE/devices/$DEVICE.yml" ] || die "unknown device: $DEVICE (see devices/)"
+[ -f "$HERE/devices/$DEVICE/device.yml" ] || die "unknown device: $DEVICE (see devices/)"
 [ -n "$STOCK" ] || die "--stock is required (OnePlus stock ROM)"
 [ -n "$HOS4" ] || die "--hyperos is required (HyperOS 2-4 ROM)"
 [ -n "$NAME" ] || NAME="HyperOS-$DEVICE-port"
@@ -58,7 +58,7 @@ while IFS= read -r line; do
     k="$(printf '%s' "$k" | tr -d '[:space:]')"
     v="$(printf '%s' "$v" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
     [ -n "$k" ] && eval "DEV_${k}=\$v"
-done < "$HERE/devices/$DEVICE.yml"
+done < "$HERE/devices/$DEVICE/device.yml"
 [ -x "$MKFS" ] || die "missing $MKFS"
 [ -x "$EXTRACT" ] || die "missing $EXTRACT"
 
@@ -295,8 +295,19 @@ else
     log "    WARNING: vendor_property_contexts missing; FOD props unreadable"
 fi
 
-# device-specific overrides on top of the shared baseline
+# device folder: displayconfig + device_features overlay, then scalar overrides
+DDIR="$HERE/devices/$DEVICE"
 log "[DEVICE] ${DEV_name:-$DEVICE} ($DEVICE)"
+if [ -d "$DDIR/displayconfig" ]; then
+    mkdir -p "$WORK/product/etc/displayconfig"
+    cp -a "$DDIR/displayconfig/." "$WORK/product/etc/displayconfig/"
+fi
+DEVNAME="$(grep -m1 -E '^ro\.product\.(vendor\.)?device=' "$VENDOR/build.prop" 2>/dev/null | cut -d= -f2 | tr -d '[:space:]')"
+if [ -f "$DDIR/device_features.xml" ] && [ -n "$DEVNAME" ]; then
+    mkdir -p "$WORK/product/etc/device_features"
+    cp "$DDIR/device_features.xml" "$WORK/product/etc/device_features/$DEVNAME.xml"
+    log "    device_features -> $DEVNAME.xml"
+fi
 prop_set "$VENDOR/build.prop" "persist.vendor.sys.fp.fod.location.X_Y" "${DEV_fod_location:-}"
 prop_set "$VENDOR/build.prop" "persist.vendor.sys.fp.fod.size.width_height" "${DEV_fod_size:-}"
 prop_set "$VENDOR/build.prop" "persist.vendor.sys.fp.fod.us.target" "${DEV_fod_target:-}"
@@ -304,12 +315,6 @@ prop_set "$VENDOR/build.prop" "persist.sys.miui_resolution" "${DEV_miui_resoluti
 prop_set "$PROD_BP" "persist.miui.density_v2" "${DEV_density:-}"
 prop_set "$PROD_BP" "ro.sf.lcd_density" "${DEV_density:-}"
 prop_set "$ODM/build.prop" "ro.product.odm.marketname" "${DEV_marketname:-}"
-# name device_features after the port's ro.product.device
-DEVNAME="$(grep -m1 -E '^ro\.product\.(vendor\.)?device=' "$VENDOR/build.prop" 2>/dev/null | cut -d= -f2 | tr -d '[:space:]')"
-DF="$WORK/product/etc/device_features"
-if [ -n "$DEVNAME" ] && [ -f "$DF/ossi.xml" ] && [ ! -f "$DF/$DEVNAME.xml" ]; then
-    cp "$DF/ossi.xml" "$DF/$DEVNAME.xml"; log "    device_features -> $DEVNAME.xml"
-fi
 
 # SELinux config synthesis (delegated to Python helper)
 log "== syncing SELinux config =="

@@ -2,8 +2,8 @@
 name: OnePlus 15
 model: PLK110
 status: Supported but untested
-density: 450
-miui_resolution: 1272,2772,450
+density: 530
+miui_resolution: 1272,2772,480
 # FOD coordinates are unverified - reusing OnePlus 13 values
 fod_location: 628,2200
 fod_size: 184,184
