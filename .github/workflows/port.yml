@@ -1,4 +1,4 @@
-name: Build HyperOS for OnePlus
+name: Port HyperOS
 
 on:
   workflow_dispatch:
@@ -8,8 +8,8 @@ on:
         required: true
         type: choice
         options:
-          - PJZ110
-          - PLK110
+          - OnePlus13
+          - OnePlus15
       stock_url:
         description: "OnePlus stock ROM link for that device (full OTA/fastboot zip or payload.bin)"
         required: true

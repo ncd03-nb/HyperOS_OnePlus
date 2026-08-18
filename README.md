@@ -41,10 +41,10 @@ built-in Python payload extractor, so it still works offline.
 ## Local build
 
 ```bash
-./port.sh --device PJZ110 --stock <oneplus-stock> --hyperos <hyperos-rom>
+./port.sh --device OnePlus13 --stock <oneplus-stock> --hyperos <hyperos-rom>
 ```
 
-`--device` is required (a name under `devices/`, e.g. `PJZ110` or `PLK110`).
+`--device` is required (a folder name under `devices/`, e.g. `OnePlus13` or `OnePlus15`).
 `--stock` and `--hyperos` accept a URL, an OTA/fastboot/recovery zip, a
 `payload.bin`, or a directory of raw `.img` files. The finished zip lands in
 `out/`.
@@ -52,7 +52,7 @@ built-in Python payload extractor, so it still works offline.
 Options:
 
 ```text
---device <name>       target device (required): PJZ110, PLK110
+--device <name>       target device (required): OnePlus13, OnePlus15
 --name <basename>     output zip basename (default: HyperOS-<device>-port)
 --out <dir>           output directory (default: out)
 --work <dir>          working directory (default: work)
@@ -80,28 +80,28 @@ the secret is missing or the upload fails, the build still succeeds.
 
 ## Adding a device
 
-Each device is a folder under `devices/<codename>/`:
+Each device is a folder under `devices/<name>/`:
 
 ```text
-devices/PJZ110/
-  device.yml                                  # scalar values (below)
+devices/OnePlus13/
+  device.conf                                 # scalar values (below)
   device_features.xml                         # copied to <ro.product.device>.xml
   displayconfig/display_id_<panelid>.xml      # brightness / refresh / density map
 ```
 
-`device.yml`:
+`device.conf`:
 
-```yaml
-name: OnePlus 13
-model: PJZ110
-status: Fully Supported
-density: 600
-miui_resolution: 1440,3168,480
-fod_location: 628,2200
-fod_size: 184,184
-fod_target: 616,2388,824,2616
-marketname: 一加 13
-camera_gdrive_id: <google drive id of that device's MiuiCamera.zip>
+```ini
+name=OnePlus 13
+model=PJZ110
+status=Fully Supported
+density=600
+miui_resolution=1440,3168,480
+fod_location=628,2200
+fod_size=184,184
+fod_target=616,2388,824,2616
+marketname=一加 13
+camera_gdrive_id=<google drive id of that device's MiuiCamera.zip>
 ```
 
 The porter overlays the folder's `displayconfig` and `device_features.xml` (the

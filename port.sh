@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # HyperOS (2-4) -> OnePlus auto-porter (multi-device; see devices/).
-#   ./port.sh --device <PJZ110|PLK110> --stock <stock-rom> --hyperos <hyperos-rom>
+#   ./port.sh --device <OnePlus13|OnePlus15> --stock <stock-rom> --hyperos <hyperos-rom>
 # Inputs: URL, zip, payload.bin or an unpacked directory.
 
 set -euo pipefail
@@ -44,21 +44,21 @@ while [ $# -gt 0 ]; do
         *) die "unknown arg: $1";;
     esac
 done
-[ -n "$DEVICE" ] || die "--device is required (a name under devices/, e.g. PJZ110 or PLK110)"
-[ -f "$HERE/devices/$DEVICE/device.yml" ] || die "unknown device: $DEVICE (see devices/)"
+[ -n "$DEVICE" ] || die "--device is required (a name under devices/, e.g. OnePlus13 or OnePlus15)"
+[ -f "$HERE/devices/$DEVICE/device.conf" ] || die "unknown device: $DEVICE (see devices/)"
 [ -n "$STOCK" ] || die "--stock is required (OnePlus stock ROM)"
 [ -n "$HOS4" ] || die "--hyperos is required (HyperOS 2-4 ROM)"
 [ -n "$NAME" ] || NAME="HyperOS-$DEVICE-port"
 
-# load devices/<DEVICE>.yml into DEV_<key> vars
+# load devices/<DEVICE>/device.conf (key=value) into DEV_<key> vars
 while IFS= read -r line; do
     case "$line" in ""|\#*) continue;; esac
-    case "$line" in *:*) : ;; *) continue;; esac
-    k="${line%%:*}"; v="${line#*:}"
+    case "$line" in *=*) : ;; *) continue;; esac
+    k="${line%%=*}"; v="${line#*=}"
     k="$(printf '%s' "$k" | tr -d '[:space:]')"
     v="$(printf '%s' "$v" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
     [ -n "$k" ] && eval "DEV_${k}=\$v"
-done < "$HERE/devices/$DEVICE/device.yml"
+done < "$HERE/devices/$DEVICE/device.conf"
 [ -x "$MKFS" ] || die "missing $MKFS"
 [ -x "$EXTRACT" ] || die "missing $EXTRACT"
 

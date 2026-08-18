@@ -318,18 +318,18 @@ def tag_incremental(prod_bp):
 
 def load_device(name):
     ddir = os.path.join(HERE, "devices", name)
-    path = os.path.join(ddir, "device.yml")
+    path = os.path.join(ddir, "device.conf")
     if not os.path.exists(path):
         base = os.path.join(HERE, "devices")
         avail = ", ".join(sorted(d for d in os.listdir(base)
-                                 if os.path.exists(os.path.join(base, d, "device.yml"))))
+                                 if os.path.exists(os.path.join(base, d, "device.conf"))))
         die("unknown device '%s' (available: %s)" % (name, avail))
     cfg = {"_dir": ddir}
     for line in read_lines(path):
         s = line.strip()
-        if not s or s.startswith("#") or ":" not in s:
+        if not s or s.startswith("#") or "=" not in s:
             continue
-        k, v = s.split(":", 1)
+        k, v = s.split("=", 1)
         cfg[k.strip()] = v.strip()
     return cfg
 
@@ -461,7 +461,7 @@ def main(argv):
         description="HyperOS (2-4) -> OnePlus auto-porter")
     ap.add_argument("--device", required=True,
                     help="target device, required (a name under devices/, "
-                         "e.g. PJZ110 or PLK110)")
+                         "e.g. OnePlus13 or OnePlus15)")
     ap.add_argument("--stock", required=True,
                     help="OnePlus stock ROM: URL, zip, payload.bin or dir "
                          "(source of vendor + odm)")
