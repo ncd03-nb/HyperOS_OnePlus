@@ -7,7 +7,7 @@ OnePlus 13 stock ROM:
 - `vendor` and `odm` come from the **OnePlus 13 stock ROM**, so the hardware
   stack stays OnePlus.
 - `system`, `system_ext` and `product` come from the **HyperOS donor**, with
-  `mi_ext` folded in.
+  `mi_ext` merged in.
 
 The output is an uncompressed zip containing `system.img`, `system_ext.img`,
 `product.img`, `vendor.img` and `odm.img`.
@@ -28,8 +28,8 @@ Linux x86_64.
 ```
 
 This installs the dependencies on Arch, Debian, Ubuntu and Fedora and fetches
-`payload-dumper-go`. If it can't be fetched, the porter falls back to a built-in
-Python payload extractor, so it still works offline.
+`payload-dumper-rust`. If it can't be fetched, the porter falls back to a
+built-in Python payload extractor, so it still works offline.
 
 ## Local build
 
@@ -89,7 +89,7 @@ This porter bakes in the fixes:
   porter downloads into `RES/` automatically (it's too big for git).
 
 Not fixed here: face-unlock enrolment freeze (needs `Settings.apk` edits) and
-AOD.
+slightly buggy fullscreen AOD.
 
 ## Porting flow
 
@@ -130,8 +130,8 @@ and are shared by both front-ends.
 ## Credits
 
 - **MIO Kitchen** — the erofs and image tools in `bin/`.
-- **[payload-dumper-go](https://github.com/ssut/payload-dumper-go)** — payload
-  extraction.
+- **[payload-dumper-rust](https://github.com/rhythmcache/payload-dumper-rust)**
+  — payload extraction (reads the ROM zip directly).
 - **[XMAPort](https://github.com/NorthStarK-Lvy/XMAPort)** and
   **[HyperOS-Port-Python](https://github.com/toraidl/HyperOS-Port-Python)** —
   references for the porting flow.

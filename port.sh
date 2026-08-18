@@ -90,47 +90,48 @@ unzip_find_payload() {   # zip dstdir label -> echoes path (payload.bin or dir)
     fi
 }
 
-resolve_input() {   # src dstdir label -> echoes payload.bin path OR dir
-    local src="$1" dst="$2" label="$3" local="$1"
+resolve_input() {   # src dstdir label -> echoes local path (zip/bin/dir, as-is)
+    local src="$1" dst="$2" label="$3"
     mkdir -p "$dst"
-    case "$src" in http://*|https://*) local="$(download "$src" "$dst" "$label")";; esac
-    if [ -d "$local" ]; then printf '%s\n' "$local"; return; fi
-    case "$local" in
-        *.zip) unzip_find_payload "$local" "$dst" "$label";;
-        *payload.bin|*.bin) printf '%s\n' "$local";;
-        *) die "cannot handle $label input: $src";;
-    esac
+    case "$src" in http://*|https://*) download "$src" "$dst" "$label";; *) printf '%s\n' "$src";; esac
 }
 
-# payload.bin -> *.img
-dump_payload() {   # payload outdir parts...
-    local payload="$1" outdir="$2"; shift 2
+find_dumper() {   # echoes payload-dumper-rust binary if available
+    command -v payload_dumper >/dev/null && { echo payload_dumper; return; }
+    [ -x "$EROFS_BIN/payload_dumper" ] && echo "$EROFS_BIN/payload_dumper"
+}
+
+# zip/payload.bin -> *.img (rust reads either directly); echoes dir of <part>.img
+dump_payload() {   # input outdir label parts...
+    local inp="$1" outdir="$2" label="$3"; shift 3
     local parts="$*"; parts="${parts// /,}"
     mkdir -p "$outdir"
-    local tool=""
-    command -v payload-dumper-go >/dev/null && tool="payload-dumper-go"
-    [ -x "$EROFS_BIN/payload-dumper-go" ] && tool="$EROFS_BIN/payload-dumper-go"
+    local tool; tool="$(find_dumper)"
     if [ -n "$tool" ]; then
-        log "extracting payload ($parts) with $(basename "$tool")"
-        quiet_run "$tool" -p "$parts" -o "$outdir" "$payload"
-    else
-        log "extracting payload ($parts) with built-in extractor"
-        quiet_run "$PY" "$HERE/lib/payload_extractor.py" -o "$outdir" -p "$parts" "$payload"
+        log "extracting $parts from $(basename "$inp") with payload-dumper-rust" >&2
+        quiet_run "$tool" "$inp" -o "$outdir" -i "$parts" >&2
+        printf '%s\n' "$outdir"; return
     fi
+    local payload="$inp"
+    case "$inp" in *.zip) payload="$(unzip_find_payload "$inp" "$outdir" "$label")";; esac
+    [ -d "$payload" ] && { printf '%s\n' "$payload"; return; }  # zip carried raw *.img
+    log "extracting $parts with built-in extractor" >&2
+    quiet_run "$PY" "$HERE/lib/payload_extractor.py" -o "$outdir" -p "$parts" "$payload" >&2
+    printf '%s\n' "$outdir"
 }
 
 get_images() {   # resolved outdir label parts... ; sets IMG_<part> vars
     local resolved="$1" outdir="$2" label="$3"; shift 3
-    local p
+    local p imgdir
     if [ -d "$resolved" ]; then
-        for p in "$@"; do
-            [ -f "$resolved/$p.img" ] || die "$label dir missing $p.img"
-            eval "IMG_$p=\"$resolved/$p.img\""
-        done
+        imgdir="$resolved"
     else
-        dump_payload "$resolved" "$outdir" "$@"
-        for p in "$@"; do eval "IMG_$p=\"$outdir/$p.img\""; done
+        imgdir="$(dump_payload "$resolved" "$outdir" "$label" "$@")"
     fi
+    for p in "$@"; do
+        [ -f "$imgdir/$p.img" ] || die "$label: $p.img not produced"
+        eval "IMG_$p=\"$imgdir/$p.img\""
+    done
 }
 
 unpack_erofs() { log "unpacking $(basename "$1")"; quiet_run "$EXTRACT" -i "$1" -x -s -f -o "$2"; }

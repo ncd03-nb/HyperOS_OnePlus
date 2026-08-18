@@ -51,21 +51,12 @@ def run(cmd, quiet=False, **kw):
         subprocess.run(cmd, check=True, **kw)
 
 
-# input resolution: URL / zip / payload.bin / directory  ->  usable path
+# input resolution: URL -> local path (zip / payload.bin / directory, as-is)
 def resolve_input(src, dst_dir, label):
-    """Return a local path to either a payload.bin or an unpacked dir."""
     os.makedirs(dst_dir, exist_ok=True)
-    local = src
     if src.startswith("http://") or src.startswith("https://"):
-        local = download(src, dst_dir, label)
-    if os.path.isdir(local):
-        return local
-    lower = local.lower()
-    if lower.endswith(".zip"):
-        return unzip_find_payload(local, dst_dir, label)
-    if os.path.basename(local) == "payload.bin" or lower.endswith(".bin"):
-        return local
-    die("cannot handle %s input: %s" % (label, src))
+        return download(src, dst_dir, label)
+    return src
 
 
 def download(url, dst_dir, label):
@@ -111,36 +102,47 @@ def unzip_find_payload(zip_path, dst_dir, label):
         return extract_to  # a dir of images
 
 
-# payload.bin -> raw *.img   (prefer payload-dumper-go, else built-in)
-def dump_payload(payload_path, out_dir, wanted):
-    os.makedirs(out_dir, exist_ok=True)
-    tool = shutil.which("payload-dumper-go") or shutil.which("payload_dumper_go")
-    bundled = os.path.join(EROFS_BIN, "payload-dumper-go")
+def _find_dumper():
+    tool = shutil.which("payload_dumper") or shutil.which("payload-dumper-rust")
+    bundled = os.path.join(EROFS_BIN, "payload_dumper")
     if not tool and os.path.exists(bundled):
         tool = bundled
+    return tool
+
+
+# zip / payload.bin -> raw *.img (rust reads either directly; else built-in)
+def dump_payload(inp, out_dir, wanted, label):
+    os.makedirs(out_dir, exist_ok=True)
+    tool = _find_dumper()
     if tool:
-        log("extracting payload (%s) with %s" % (",".join(wanted), os.path.basename(tool)))
-        run([tool, "-p", ",".join(wanted), "-o", out_dir, payload_path], quiet=True)
-    else:
-        log("extracting payload (%s) with built-in extractor" % ",".join(wanted))
-        payload_extractor.extract(payload_path, out_dir, wanted, log=lambda *_a: None)
+        log("extracting %s from %s with payload-dumper-rust"
+            % (",".join(wanted), os.path.basename(inp)))
+        run([tool, inp, "-o", out_dir, "-i", ",".join(wanted)], quiet=True)
+        return {p: os.path.join(out_dir, p + ".img") for p in wanted}
+    # built-in fallback needs a payload.bin; unzip it out of a ROM zip first
+    payload = inp
+    if inp.lower().endswith(".zip"):
+        payload = unzip_find_payload(inp, out_dir, label)
+        if os.path.isdir(payload):  # zip carried raw *.img, not a payload
+            return _imgs_from_dir(payload, wanted, label)
+    log("extracting %s with built-in extractor" % ",".join(wanted))
+    payload_extractor.extract(payload, out_dir, wanted, log=lambda *_a: None)
     return {p: os.path.join(out_dir, p + ".img") for p in wanted}
 
 
+def _imgs_from_dir(d, wanted, label):
+    found = {p: os.path.join(d, p + ".img") for p in wanted
+             if os.path.exists(os.path.join(d, p + ".img"))}
+    missing = [p for p in wanted if p not in found]
+    if missing:
+        die("%s dir missing images: %s" % (label, ", ".join(missing)))
+    return found
+
+
 def get_images(resolved, out_dir, wanted, label):
-    """resolved is either a payload.bin, a dir of *.img, or an unpacked ROM
-    dir. Return {partition: img_path} for the wanted partitions."""
     if os.path.isdir(resolved):
-        found = {}
-        for p in wanted:
-            cand = os.path.join(resolved, p + ".img")
-            if os.path.exists(cand):
-                found[p] = cand
-        missing = [p for p in wanted if p not in found]
-        if missing:
-            die("%s dir missing images: %s" % (label, ", ".join(missing)))
-        return found
-    return dump_payload(resolved, out_dir, wanted)
+        return _imgs_from_dir(resolved, wanted, label)
+    return dump_payload(resolved, out_dir, wanted, label)
 
 
 # erofs image  ->  files + config/<part>_{file_contexts,fs_config,fs_options}

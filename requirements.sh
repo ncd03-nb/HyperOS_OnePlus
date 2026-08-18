@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Installs deps for Arch/Debian/Ubuntu/Fedora and fetches payload-dumper-go
+# Installs deps for Arch/Debian/Ubuntu/Fedora and fetches payload-dumper-rust
 # (optional; the porter has a built-in fallback). Run before ./port.sh.
 
 set -euo pipefail
@@ -41,21 +41,21 @@ install_packages() {
     esac
 }
 
-# ssut/payload-dumper-go — MIT. Static Go binary, no runtime deps.
-PDG_VERSION="1.3.0"
-PDG_ARCH="linux_amd64"
+# rhythmcache/payload-dumper-rust — reads payload.bin or a ROM zip directly.
+PDR_TAG="payload-dumper-rust-v0.8.4"
+PDR_ASSET="payload_dumper-linux-x86_64.zip"
 install_payload_dumper() {
-    local dest="$HERE/bin/Linux/x86_64/payload-dumper-go"
-    if [ -x "$dest" ] || command -v payload-dumper-go >/dev/null 2>&1; then
-        echo "== payload-dumper-go already present =="
+    local dest="$HERE/bin/Linux/x86_64/payload_dumper"
+    if [ -x "$dest" ] || command -v payload_dumper >/dev/null 2>&1; then
+        echo "== payload_dumper already present =="
         return 0
     fi
-    local url="https://github.com/ssut/payload-dumper-go/releases/download/${PDG_VERSION}/payload-dumper-go_${PDG_VERSION}_${PDG_ARCH}.tar.gz"
+    local url="https://github.com/rhythmcache/payload-dumper-rust/releases/download/${PDR_TAG}/${PDR_ASSET}"
     local tmp; tmp="$(mktemp -d)"
-    echo "== fetching payload-dumper-go ${PDG_VERSION} =="
-    if curl -fsSL "$url" -o "$tmp/pdg.tar.gz"; then
-        tar -xzf "$tmp/pdg.tar.gz" -C "$tmp"
-        local bin; bin="$(find "$tmp" -name 'payload-dumper-go' -type f | head -n1)"
+    echo "== fetching payload-dumper-rust ${PDR_TAG} =="
+    if curl -fsSL "$url" -o "$tmp/pdr.zip"; then
+        unzip -o -q "$tmp/pdr.zip" -d "$tmp"
+        local bin; bin="$(find "$tmp" -name 'payload_dumper' -type f | head -n1)"
         if [ -n "$bin" ]; then
             mkdir -p "$(dirname "$dest")"
             install -m 0755 "$bin" "$dest"
