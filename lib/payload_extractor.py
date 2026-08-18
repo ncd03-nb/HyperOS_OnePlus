@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # Dependency-free extractor for Android A/B payload.bin (update_engine).
 # FULL payloads only (REPLACE / REPLACE_BZ / REPLACE_XZ / ZERO); delta ops are
-# rejected. Fallback when payload-dumper-go isn't available.
+# rejected. Fallback when payload-dumper-rust isn't available.
 
 import bz2
 import lzma
