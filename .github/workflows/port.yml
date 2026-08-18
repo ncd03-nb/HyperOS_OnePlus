@@ -61,14 +61,30 @@ jobs:
             exit 0
           fi
           ZIP="$(ls out/*.zip | head -n1)"
-          echo "uploading $(basename "$ZIP") to pixeldrain"
-          RESP="$(curl -s -T "$ZIP" -u ":$PIXELDRAIN_API_KEY" \
-            "https://pixeldrain.com/api/file/$(basename "$ZIP")")"
-          FID="$(printf '%s' "$RESP" | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
-          if [ -n "$FID" ]; then
-            echo "pixeldrain: https://pixeldrain.com/u/$FID"
-            echo "### Pixeldrain: https://pixeldrain.com/u/$FID" >> "$GITHUB_STEP_SUMMARY"
+          BASENAME="$(basename "$ZIP")"
+          echo "uploading $BASENAME ($(du -h "$ZIP" | cut -f1)) to pixeldrain"
+
+          # The simple PUT /api/file endpoint caps file size by plan and rejects
+          # a full ROM zip with file_too_large. rclone's pixeldrain backend uses
+          # pixeldrain's filesystem (Pro / Prepaid), which chunk-uploads large
+          # files. Ubuntu's apt rclone predates that backend, so install latest.
+          if ! rclone version 2>/dev/null | grep -q pixeldrain 2>/dev/null; then
+            curl -fsSL https://rclone.org/install.sh | sudo bash || sudo apt-get install -y rclone
+          fi
+          export RCLONE_CONFIG_PD_TYPE=pixeldrain
+          export RCLONE_CONFIG_PD_API_KEY="$PIXELDRAIN_API_KEY"
+          export RCLONE_CONFIG_PD_ROOT_FOLDER_ID=me
+
+          if rclone copy --stats-one-line --stats 30s "$ZIP" pd:/ ; then
+            LINK="$(rclone link "pd:/$BASENAME" 2>/dev/null || true)"
+            if [ -n "$LINK" ]; then
+              echo "pixeldrain: $LINK"
+              echo "### Pixeldrain: [$BASENAME]($LINK)" >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "uploaded to your pixeldrain filesystem as $BASENAME (share it from https://pixeldrain.com/filesystem)"
+              echo "### Uploaded to your pixeldrain filesystem: \`$BASENAME\`" >> "$GITHUB_STEP_SUMMARY"
+            fi
           else
-            echo "::error::pixeldrain upload failed: $RESP"
-            exit 1
+            # never fail the build over the upload: the zip is already an artifact
+            echo "::warning::rclone pixeldrain upload failed. The zip is still available as a workflow artifact above. (The pixeldrain filesystem needs a Pro or Prepaid plan.)"
           fi

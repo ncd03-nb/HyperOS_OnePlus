@@ -52,7 +52,6 @@ The finished zip lands in `out/`. Useful flags:
 
 ```
 --name <basename>     name for the output zip
---pixeldrain          upload the zip to pixeldrain (uses $PIXELDRAIN_API_KEY)
 --out <dir>           output directory (default: out)
 --work <dir>          working directory (default: work)
 --keep-work           keep the working tree instead of cleaning it up
@@ -76,9 +75,12 @@ fallback (`lib/payload_extractor.py`). Use whichever you prefer.
    **Run workflow**.
 4. Paste the OnePlus 13 stock ROM link and the HyperOS 4 link.
 
-The **Upload to pixeldrain** toggle is on by default. If you leave it on but
-never added the secret, the build still finishes and the zip is attached as a
-normal workflow artifact — it just skips the upload.
+The **Upload to pixeldrain** toggle is on by default. The upload goes through
+rclone's pixeldrain backend (the full ROM zip is too big for the plain upload
+API), so it needs a pixeldrain **Pro or Prepaid** plan; on success the run
+prints a share link. Either way the zip is always attached as a normal workflow
+artifact, and if the secret is missing or the upload fails the build still
+finishes — it just skips the upload.
 
 ## What it fixes
 
