@@ -1,11 +1,6 @@
 #!/usr/bin/env bash
-# Installs everything the porter needs on Arch, Debian, Ubuntu or Fedora, then
-# fetches payload-dumper-go. Run this once before ./port.sh (or port.py).
-#
-#   ./requirements.sh
-#
-# Uses sudo for the package install. payload-dumper-go is optional: if the
-# download fails the porter falls back to its built-in Python payload extractor.
+# Installs deps for Arch/Debian/Ubuntu/Fedora and fetches payload-dumper-go
+# (optional; the porter has a built-in fallback). Run before ./port.sh.
 
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"

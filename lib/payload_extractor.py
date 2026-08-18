@@ -1,17 +1,7 @@
 #!/usr/bin/env python3
-# Minimal, dependency-free extractor for Android A/B payload.bin (update_engine).
-#
-# Handles FULL payloads only (the kind inside stock / fastboot / OTA zips):
-# operation types REPLACE, REPLACE_BZ, REPLACE_XZ and ZERO. Delta operations
-# (BSDIFF / PUFFDIFF / SOURCE_*) are not needed for a full image and are
-# rejected loudly instead of producing a corrupt file.
-#
-# The payload layout (chromeos_update_engine) is:
-#   "CrAU" | version(u64 BE) | manifest_size(u64 BE) |
-#   metadata_signature_size(u32 BE, v2+) | manifest | metadata_signature | data
-# The manifest is a DeltaArchiveManifest protobuf. We decode just the fields we
-# need with a tiny hand-rolled wire-format reader, so there is no protobuf
-# dependency to install.
+# Dependency-free extractor for Android A/B payload.bin (update_engine).
+# FULL payloads only (REPLACE / REPLACE_BZ / REPLACE_XZ / ZERO); delta ops are
+# rejected. Fallback when payload-dumper-go isn't available.
 
 import bz2
 import lzma
@@ -21,9 +11,7 @@ import sys
 BRILLO_MAGIC = b"CrAU"
 
 
-# ---------------------------------------------------------------------------
 # tiny protobuf wire reader
-# ---------------------------------------------------------------------------
 def _read_varint(buf, pos):
     shift = 0
     result = 0
@@ -62,9 +50,7 @@ def _iter_fields(buf):
             raise ValueError("unsupported wire type %d (field %d)" % (wire, field))
 
 
-# ---------------------------------------------------------------------------
 # message decoders (only the fields we care about)
-# ---------------------------------------------------------------------------
 def _decode_extent(buf):
     start_block = num_blocks = 0
     for field, _w, val in _iter_fields(buf):
@@ -110,9 +96,7 @@ def _decode_manifest(buf):
     return block_size, partitions
 
 
-# ---------------------------------------------------------------------------
 # public API
-# ---------------------------------------------------------------------------
 # InstallOperation.Type
 REPLACE = 0
 REPLACE_BZ = 1

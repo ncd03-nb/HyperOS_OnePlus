@@ -1,17 +1,7 @@
 #!/usr/bin/env bash
-# HyperOS -> OnePlus 13 auto-porter (Bash pipeline). Supports HyperOS 2, 3 and 4.
-#
-# Same job as port.py, done in shell. vendor + odm come from the OnePlus 13
-# stock ROM; system + system_ext + product come from the HyperOS ROM. The
-# only part delegated to Python is the SELinux fs_config / file_contexts
-# synthesis (lib/erofs_config.py) and the payload fallback extractor
-# (lib/payload_extractor.py) — everything else is shell.
-#
-# Supports ONLY the OnePlus 13.
-#
-#   ./port.sh --stock <op13-rom> --hyperos <hyperos-rom>   (HyperOS 2 to 4)
-#
-# Inputs may be a URL, a zip, a payload.bin, or an unpacked directory.
+# HyperOS (2-4) -> OnePlus 13 auto-porter. OnePlus 13 only.
+#   ./port.sh --stock <op13-rom> --hyperos <hyperos-rom>
+# Inputs: URL, zip, payload.bin or an unpacked directory.
 
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -39,7 +29,7 @@ quiet_run() {
     fi
 }
 
-# ---- args -----------------------------------------------------------------
+# args
 STOCK=""; HOS4=""; WORK="work"; OUT="out"; RES="$HERE/RES"
 NAME="HyperOS-OnePlus13-port"; KEEP_WORK=0
 while [ $# -gt 0 ]; do
@@ -64,7 +54,7 @@ WORK="$(mkdir -p "$WORK" && cd "$WORK" && pwd)"
 OUT="$(mkdir -p "$OUT" && cd "$OUT" && pwd)"
 DL="$WORK/_inputs"; mkdir -p "$DL"
 
-# ---- input resolution -----------------------------------------------------
+# input resolution
 download() {   # url dstdir label -> echoes path
     local url="$1" dst="$2" label="$3" out
     out="$dst/${label}_download"
@@ -112,7 +102,7 @@ resolve_input() {   # src dstdir label -> echoes payload.bin path OR dir
     esac
 }
 
-# ---- payload.bin -> *.img -------------------------------------------------
+# payload.bin -> *.img
 dump_payload() {   # payload outdir parts...
     local payload="$1" outdir="$2"; shift 2
     local parts="$*"; parts="${parts// /,}"
@@ -145,7 +135,7 @@ get_images() {   # resolved outdir label parts... ; sets IMG_<part> vars
 
 unpack_erofs() { log "unpacking $(basename "$1")"; quiet_run "$EXTRACT" -i "$1" -x -s -f -o "$2"; }
 
-# ---- build.prop helpers ---------------------------------------------------
+# build.prop helpers
 prop_append() {   # file header line...
     local file="$1" header="$2"; shift 2
     [ -f "$file" ] || : > "$file"
@@ -182,7 +172,6 @@ apply_fix() {   # target header fixfile
     [ ${#lines[@]} -gt 0 ] && prop_append "$target" "$header" "${lines[@]}"
 }
 
-# ===========================================================================
 log "== resolving inputs =="
 STOCK_SRC="$(resolve_input "$STOCK" "$DL" stock)"
 HOS4_SRC="$(resolve_input "$HOS4" "$DL" hyperos)"
@@ -200,7 +189,7 @@ unpack_erofs "$IMG_product" "$WORK"
 unpack_erofs "$IMG_mi_ext" "$WORK"
 MIEXT="$WORK/mi_ext"
 
-# ---- 12-step assembly -----------------------------------------------------
+# 12-step assembly
 PRODUCT="$WORK/product"; SYS="$WORK/system/system"
 SYSEXT="$WORK/system_ext"; VENDOR="$WORK/vendor"; ODM="$WORK/odm"
 PROD_BP="$PRODUCT/etc/build.prop"
@@ -211,8 +200,7 @@ log "[1] folding mi_ext into product + system"
 
 log "[2] merging mi_ext/etc/build.prop into product + system/system build.prop"
 if [ -f "$MIEXT/etc/build.prop" ]; then
-    # drop the huge ab_ota_partitions line once at the source, so it lands in
-    # neither product nor system (instead of stripping it from both).
+    # drop the huge ab_ota_partitions line once, so it reaches neither target
     prop_remove_prefix "$MIEXT/etc/build.prop" "ro.vendor.build.ab_ota_partitions="
     printf '\n' >> "$PROD_BP"; cat "$MIEXT/etc/build.prop" >> "$PROD_BP"
     printf '\n' >> "$SYS/build.prop"; cat "$MIEXT/etc/build.prop" >> "$SYS/build.prop"
@@ -229,9 +217,7 @@ if [ -d "$PRODUCT/pangu/system" ]; then
     cp -a "$PRODUCT/pangu/system/." "$SYS/" && rm -rf "$PRODUCT/pangu/system"
 fi
 
-# step 6: OP13 vendor props (the "# end of file" block) live in
-# fixes/vendor.build.prop and are applied in the [FIX] section below, so there
-# is nothing to pull from the Xiaomi vendor here.
+# step 6 vendor props live in fixes/vendor.build.prop, applied in [FIX] below
 log "[6] OP13 vendor props applied from fixes/vendor.build.prop (in [FIX])"
 
 log "[7] odm/build.prop: Xiaomi attestation block"
@@ -253,7 +239,7 @@ rm -rf "$SYSEXT/priv-app/qcrilmsgtunnel"
 log "[12] removing product/priv-app/MiuiCamera (replaced from RES)"
 rm -rf "$PRODUCT/priv-app/MiuiCamera"
 
-# ---- fetch MiuiCamera into RES if missing (too big for git) ----------------
+# fetch MiuiCamera into RES if missing (too big for git)
 CAM="$RES/product/priv-app/MiuiCamera/MiuiCamera.apk"
 if [ ! -f "$CAM" ]; then
     log "[RES] MiuiCamera not present; downloading from Google Drive"
@@ -264,7 +250,7 @@ if [ ! -f "$CAM" ]; then
     [ -f "$CAM" ] || die "camera zip did not contain MiuiCamera/MiuiCamera.apk"
 fi
 
-# ---- RES overlay ----------------------------------------------------------
+# RES overlay
 log "[RES] overlaying RES files"
 if [ -d "$RES" ]; then
     for part in "$RES"/*/; do
@@ -275,7 +261,7 @@ if [ -d "$RES" ]; then
     done
 fi
 
-# ---- vendor line-based fixes ----------------------------------------------
+# vendor line-based fixes
 log "[FIX] vendor build.prop + property_contexts fixes"
 apply_fix "$VENDOR/build.prop" "# OP13 vendor props + FOD ($SIG)" vendor.build.prop
 
@@ -286,7 +272,7 @@ else
     log "    WARNING: vendor_property_contexts missing; FOD props unreadable"
 fi
 
-# ---- SELinux config synthesis (delegated to Python helper) ---------------
+# SELinux config synthesis (delegated to Python helper)
 log "== syncing SELinux config =="
 for part in "${PACK_PARTS[@]}"; do
     run "$PY" "$HERE/lib/erofs_config.py" sync "$WORK" "$part"
@@ -300,7 +286,7 @@ if [ -d "$VENDOR/etc/permissions" ]; then
     done
 fi
 
-# ---- pack -----------------------------------------------------------------
+# pack
 log "== packing images =="
 TS="$(date +%s)"
 IMGS=()
@@ -317,7 +303,7 @@ for part in "${PACK_PARTS[@]}"; do
     IMGS+=("$img")
 done
 
-# ---- uncompressed zip -----------------------------------------------------
+# uncompressed zip
 ZIP="$OUT/$NAME.zip"
 log "packing uncompressed zip: $ZIP"
 rm -f "$ZIP"

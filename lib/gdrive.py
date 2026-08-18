@@ -1,12 +1,6 @@
 #!/usr/bin/env python3
-# Dependency-free Google Drive downloader for large files.
-#
-# Big Drive files can't be served directly: the first request returns an HTML
-# "can't scan for viruses" interstitial carrying a confirm token, and only the
-# second request (with that token) returns the file. This handles both, using
-# the file id so it keeps working after any pre-signed link expires.
-#
-#   gdrive.py <file_id> <output_path>
+# Google Drive large-file downloader (handles the confirm-token interstitial).
+# Usage: gdrive.py <file_id> <output_path>
 
 import http.cookiejar
 import re

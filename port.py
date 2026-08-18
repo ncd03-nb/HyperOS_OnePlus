@@ -1,17 +1,6 @@
 #!/usr/bin/env python3
-# HyperOS -> OnePlus 13 auto-porter (HyperOS 2, 3 and 4).
-#
-# Takes a OnePlus 13 stock ROM (for vendor + odm) and a HyperOS ROM
-# (for system + system_ext + product), assembles a bootable/DSU-loadable
-# port, applies the OnePlus 13 fixes, and writes an uncompressed flashable zip.
-#
-# Runnable locally and from GitHub Actions. Inputs may be URLs or local paths;
-# each may be a payload.bin, a zip containing payload.bin, or an already
-# unpacked directory tree.
-#
-# This porter supports ONLY the OnePlus 13. Do not use it for other devices.
-#
-# See README.md for the full step list and credits.
+# HyperOS (2-4) -> OnePlus 13 auto-porter. OnePlus 13 only. See README.md.
+# vendor+odm from OP13 stock, system+system_ext+product from the HyperOS ROM.
 
 import argparse
 import os
@@ -62,9 +51,7 @@ def run(cmd, quiet=False, **kw):
         subprocess.run(cmd, check=True, **kw)
 
 
-# ---------------------------------------------------------------------------
 # input resolution: URL / zip / payload.bin / directory  ->  usable path
-# ---------------------------------------------------------------------------
 def resolve_input(src, dst_dir, label):
     """Return a local path to either a payload.bin or an unpacked dir."""
     os.makedirs(dst_dir, exist_ok=True)
@@ -124,9 +111,7 @@ def unzip_find_payload(zip_path, dst_dir, label):
         return extract_to  # a dir of images
 
 
-# ---------------------------------------------------------------------------
 # payload.bin -> raw *.img   (prefer payload-dumper-go, else built-in)
-# ---------------------------------------------------------------------------
 def dump_payload(payload_path, out_dir, wanted):
     os.makedirs(out_dir, exist_ok=True)
     tool = shutil.which("payload-dumper-go") or shutil.which("payload_dumper_go")
@@ -158,17 +143,13 @@ def get_images(resolved, out_dir, wanted, label):
     return dump_payload(resolved, out_dir, wanted)
 
 
-# ---------------------------------------------------------------------------
 # erofs image  ->  files + config/<part>_{file_contexts,fs_config,fs_options}
-# ---------------------------------------------------------------------------
 def unpack_erofs(img, work):
     log("unpacking %s" % os.path.basename(img))
     run([EXTRACT, "-i", img, "-x", "-s", "-f", "-o", work], quiet=True)
 
 
-# ---------------------------------------------------------------------------
 # small build.prop / text helpers
-# ---------------------------------------------------------------------------
 def read_lines(path):
     with open(path, "r", encoding="utf-8", errors="replace") as f:
         return f.read().splitlines()
@@ -227,9 +208,7 @@ def copy_tree(src, dst):
             shutil.copy2(os.path.join(root, fname), os.path.join(target, fname))
 
 
-# ---------------------------------------------------------------------------
 # the 12-step assembly + fixes
-# ---------------------------------------------------------------------------
 FIXES_DIR = os.path.join(HERE, "fixes")
 SIGNATURE = "palaziks"
 
@@ -255,19 +234,16 @@ def assemble(work, mi_ext_dir):
     vendor = os.path.join(work, "vendor")
     odm = os.path.join(work, "odm")
 
-    # --- step 1: fold mi_ext into product + system/system ---
     log("[1] folding mi_ext into product + system")
     move_tree(os.path.join(mi_ext_dir, "product"), product)
     move_tree(os.path.join(mi_ext_dir, "system"), system_sys)
 
-    # --- step 2: append mi_ext/etc/build.prop to product AND system/system ---
     log("[2] merging mi_ext/etc/build.prop into product + system/system build.prop")
     prod_bp = os.path.join(product, "etc", "build.prop")
     sys_bp = os.path.join(system_sys, "build.prop")
     mi_ext_bp = os.path.join(mi_ext_dir, "etc", "build.prop")
     if os.path.exists(mi_ext_bp):
-        # drop the huge ab_ota_partitions line once at the source, so it lands
-        # in neither product nor system (instead of stripping it from both).
+        # drop the huge ab_ota_partitions line once, so it reaches neither target
         prop_remove(mi_ext_bp, lambda l: l.strip().startswith(
             "ro.vendor.build.ab_ota_partitions="))
         extra = read_lines(mi_ext_bp)
@@ -275,50 +251,39 @@ def assemble(work, mi_ext_dir):
             base = read_lines(target) if os.path.exists(target) else []
             write_lines(target, base + [""] + extra)
 
-    # --- step 3: home + dexopt into system/system/build.prop ---
     log("[3] system/system/build.prop: home + dexopt")
     prop_append(os.path.join(system_sys, "build.prop"),
                 read_fix("system.build.prop"), header="# " + SIGNATURE)
 
-    # --- step 4: tag ro.mi.os.version.incremental in product/etc/build.prop ---
     log("[4] tagging ro.mi.os.version.incremental with | %s" % SIGNATURE)
     tag_incremental(prod_bp)
 
-    # --- step 5: relocate product/pangu/system into system/system ---
     log("[5] moving product/pangu/system -> system/system")
     move_tree(os.path.join(product, "pangu", "system"), system_sys)
 
-    # --- step 6: OP13 vendor props (the "# end of file" block) ---
-    # These live in fixes/vendor.build.prop and are appended in apply_fixes(),
-    # so there is nothing to pull from the Xiaomi vendor here.
+    # applied from fixes/vendor.build.prop in apply_fixes(); nothing to do here
     log("[6] OP13 vendor props applied from fixes/vendor.build.prop (in [FIX])")
 
-    # --- step 7: odm attestation block ---
     log("[7] odm/build.prop: Xiaomi attestation block")
     prop_append(os.path.join(odm, "build.prop"),
                 read_fix("odm.build.prop"), header="# " + SIGNATURE)
 
-    # --- step 8: strip 'import' lines from odm/build.prop ---
     log("[8] odm/build.prop: removing import lines")
     prop_remove(os.path.join(odm, "build.prop"),
                 lambda l: l.strip().startswith("import"))
 
-    # --- step 9: drop high_pwm_rgb from vendor build.prop ---
     log("[9] removing ro.vendor.oplus.sensor.high_pwm_rgb")
     for bp in (os.path.join(vendor, "build.prop"), os.path.join(odm, "build.prop")):
         prop_remove(bp, lambda l: l.strip().startswith(
             "ro.vendor.oplus.sensor.high_pwm_rgb"))
 
-    # --- step 10: density (+ status bar tint) into product/etc/build.prop ---
     log("[10] product/etc/build.prop: density 600 + status bar tint")
     prop_append(prod_bp, read_fix("product.build.prop"), header="# " + SIGNATURE)
 
-    # --- step 11: delete system_ext/priv-app/qcrilmsgtunnel ---
     log("[11] removing system_ext/priv-app/qcrilmsgtunnel")
     shutil.rmtree(os.path.join(system_ext, "priv-app", "qcrilmsgtunnel"),
                   ignore_errors=True)
 
-    # --- step 12: delete product/priv-app/MiuiCamera (RES supplies its own) ---
     log("[12] removing product/priv-app/MiuiCamera (replaced from RES)")
     shutil.rmtree(os.path.join(product, "priv-app", "MiuiCamera"),
                   ignore_errors=True)
@@ -369,8 +334,7 @@ def apply_res(work, res_dir):
             continue
         dst = os.path.join(work, part)
         copy_tree(src, dst)
-    # vendor permission xmls must be vendor_configs_file (the FOD label fix).
-    # nearest-parent inheritance already yields this, but pin it to be safe.
+    # pin vendor permission xmls to vendor_configs_file (the FOD label fix)
     vperm = os.path.join(work, "vendor", "etc", "permissions")
     if os.path.isdir(vperm):
         for fn in os.listdir(vperm):
@@ -396,9 +360,7 @@ def apply_fixes(work):
         log("    WARNING: vendor_property_contexts missing; FOD props unreadable")
 
 
-# ---------------------------------------------------------------------------
 # pack + zip
-# ---------------------------------------------------------------------------
 def pack_partition(work, part, out_dir, ts):
     img = os.path.join(out_dir, part + ".img")
     fsc = os.path.join(work, "config", part + "_fs_config")
@@ -420,9 +382,7 @@ def make_zip(imgs, zip_path):
             z.write(img, os.path.basename(img))
 
 
-# ---------------------------------------------------------------------------
 # main
-# ---------------------------------------------------------------------------
 def main(argv):
     ap = argparse.ArgumentParser(
         description="HyperOS (2-4) -> OnePlus 13 auto-porter")
@@ -453,19 +413,16 @@ def main(argv):
             die("missing tool: %s" % tool)
         os.chmod(tool, 0o755)
 
-    # --- resolve + fetch inputs ---
     log("== resolving inputs ==")
     stock_src = resolve_input(args.stock, dl, "stock")
     hos4_src = resolve_input(args.hos4, dl, "hyperos")
 
-    # --- get raw images ---
     log("== extracting payloads ==")
     stock_imgs = get_images(stock_src, os.path.join(dl, "stock_img"),
                             FROM_STOCK, "stock")
     hos4_imgs = get_images(hos4_src, os.path.join(dl, "hyperos_img"),
                            FROM_HOS4, "hyperos")
 
-    # --- unpack erofs into work tree ---
     log("== unpacking images ==")
     for part in FROM_STOCK:
         unpack_erofs(stock_imgs[part], work)
@@ -475,26 +432,21 @@ def main(argv):
     mi_ext_dir = os.path.join(work, "mi_ext")
     unpack_erofs(hos4_imgs["mi_ext"], work)
 
-    # --- assemble (12 steps) ---
     log("== assembling ==")
     assemble(work, mi_ext_dir)
 
-    # --- RES overlay + line fixes ---
     ensure_camera(args.res)
     apply_res(work, args.res)
     apply_fixes(work)
 
-    # --- sync SELinux config for everything we added/moved ---
     log("== syncing SELinux config ==")
     for part in PACK:
         sync_config(work, part)
 
-    # --- pack ---
     log("== packing images ==")
     ts = int(time.time())
     imgs = [pack_partition(work, part, out, ts) for part in PACK]
 
-    # --- zip ---
     zip_path = os.path.join(out, args.name + ".zip")
     make_zip(imgs, zip_path)
     log("done: %s" % zip_path)
