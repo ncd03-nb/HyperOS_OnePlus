@@ -61,30 +61,31 @@ jobs:
             exit 0
           fi
           ZIP="$(ls out/*.zip | head -n1)"
-          BASENAME="$(basename "$ZIP")"
-          echo "uploading $BASENAME ($(du -h "$ZIP" | cut -f1)) to pixeldrain"
+          NAME="$(basename "$ZIP")"
+          echo "uploading $NAME ($(du -h "$ZIP" | cut -f1)) to pixeldrain"
 
-          # The simple PUT /api/file endpoint caps file size by plan and rejects
-          # a full ROM zip with file_too_large. rclone's pixeldrain backend uses
-          # pixeldrain's filesystem (Pro / Prepaid), which chunk-uploads large
-          # files. Ubuntu's apt rclone predates that backend, so install latest.
-          if ! rclone version 2>/dev/null | grep -q pixeldrain 2>/dev/null; then
-            curl -fsSL https://rclone.org/install.sh | sudo bash || sudo apt-get install -y rclone
+          # The plain PUT /api/file endpoint caps file size and rejects a full
+          # ROM zip with file_too_large. The filesystem endpoint (what the web
+          # uploader uses) has no per-file cap - only the account storage quota.
+          UP_CODE="$(curl -s -w '%{http_code}' -o pd_upload.json \
+            -T "$ZIP" -u ":$PIXELDRAIN_API_KEY" \
+            "https://pixeldrain.com/api/filesystem/me/$NAME?make_parents=true")"
+          echo "upload HTTP $UP_CODE"; cat pd_upload.json 2>/dev/null; echo
+          if [ "$UP_CODE" != "200" ] && [ "$UP_CODE" != "201" ]; then
+            echo "::warning::pixeldrain upload failed (HTTP $UP_CODE). The zip is still available as a workflow artifact above."
+            exit 0
           fi
-          export RCLONE_CONFIG_PD_TYPE=pixeldrain
-          export RCLONE_CONFIG_PD_API_KEY="$PIXELDRAIN_API_KEY"
-          export RCLONE_CONFIG_PD_ROOT_FOLDER_ID=me
 
-          if rclone copy --stats-one-line --stats 30s "$ZIP" pd:/ ; then
-            LINK="$(rclone link "pd:/$BASENAME" 2>/dev/null || true)"
-            if [ -n "$LINK" ]; then
-              echo "pixeldrain: $LINK"
-              echo "### Pixeldrain: [$BASENAME]($LINK)" >> "$GITHUB_STEP_SUMMARY"
-            else
-              echo "uploaded to your pixeldrain filesystem as $BASENAME (share it from https://pixeldrain.com/filesystem)"
-              echo "### Uploaded to your pixeldrain filesystem: \`$BASENAME\`" >> "$GITHUB_STEP_SUMMARY"
-            fi
+          # mark the uploaded file public and read back its share id
+          SHARE="$(curl -s -X POST -u ":$PIXELDRAIN_API_KEY" \
+            --data-urlencode "action=update" --data-urlencode "shared=true" \
+            "https://pixeldrain.com/api/filesystem/me/$NAME")"
+          ID="$(printf '%s' "$SHARE" | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
+          if [ -n "$ID" ]; then
+            echo "pixeldrain: https://pixeldrain.com/d/$ID"
+            echo "### Pixeldrain: https://pixeldrain.com/d/$ID" >> "$GITHUB_STEP_SUMMARY"
           else
-            # never fail the build over the upload: the zip is already an artifact
-            echo "::warning::rclone pixeldrain upload failed. The zip is still available as a workflow artifact above. (The pixeldrain filesystem needs a Pro or Prepaid plan.)"
+            echo "uploaded to your pixeldrain filesystem as $NAME"
+            echo "::warning::uploaded, but could not parse a share id from: $SHARE"
+            echo "### Uploaded to your pixeldrain filesystem: \`$NAME\`" >> "$GITHUB_STEP_SUMMARY"
           fi

@@ -75,12 +75,11 @@ fallback (`lib/payload_extractor.py`). Use whichever you prefer.
    **Run workflow**.
 4. Paste the OnePlus 13 stock ROM link and the HyperOS link.
 
-The **Upload to pixeldrain** toggle is on by default. The upload goes through
-rclone's pixeldrain backend (the full ROM zip is too big for the plain upload
-API), so it needs a pixeldrain **Pro or Prepaid** plan; on success the run
-prints a share link. Either way the zip is always attached as a normal workflow
-artifact, and if the secret is missing or the upload fails the build still
-finishes — it just skips the upload.
+The **Upload to pixeldrain** toggle is on by default. The upload uses
+pixeldrain's filesystem endpoint (the full ROM zip is too big for the plain
+`/api/file` upload), then marks the file shared and prints the link. The zip is
+always attached as a normal workflow artifact too, and if the secret is missing
+or the upload fails the build still finishes — it just skips the upload.
 
 ## What it fixes
 
