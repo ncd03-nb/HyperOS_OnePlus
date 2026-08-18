@@ -4,11 +4,11 @@ on:
   workflow_dispatch:
     inputs:
       stock_url:
-        description: "OnePlus 13 stock ROM link (full OTA/fastboot zip or payload.bin) — source of vendor + odm"
+        description: "OnePlus 13 stock ROM link (full OTA/fastboot zip or payload.bin)"
         required: true
         type: string
       hyperos_url:
-        description: "HyperOS ROM link (HyperOS 2 to 4, full recovery/OTA zip or payload.bin) — source of system + system_ext + product"
+        description: "HyperOS ROM link (HyperOS 2 to 4, full recovery/OTA zip or payload.bin)"
         required: true
         type: string
       name:
@@ -17,7 +17,7 @@ on:
         default: "HyperOS-OnePlus13-port"
         type: string
       upload_pixeldrain:
-        description: "Upload the finished zip to pixeldrain (needs the PIXELDRAIN_API_KEY secret)"
+        description: "Upload the finished zip to pixeldrain (needs PIXELDRAIN_API_KEY)"
         required: false
         default: true
         type: boolean
@@ -57,12 +57,19 @@ jobs:
           PIXELDRAIN_API_KEY: ${{ secrets.PIXELDRAIN_API_KEY }}
         run: |
           [ -n "$PIXELDRAIN_API_KEY" ] || { echo "::warning::PIXELDRAIN_API_KEY not set; skipping upload."; exit 0; }
-          curl -fsSL https://rclone.org/install.sh | sudo bash >/dev/null 2>&1 || sudo apt-get install -y rclone >/dev/null 2>&1
-          export RCLONE_CONFIG_PD_TYPE=pixeldrain RCLONE_CONFIG_PD_API_KEY="$PIXELDRAIN_API_KEY" RCLONE_CONFIG_PD_ROOT_FOLDER_ID=me
           ZIP="$(ls out/*.zip | head -n1)"; NAME="$(basename "$ZIP")"
-          if rclone copy --stats-one-line --stats 30s "$ZIP" pd:/ ; then
-            LINK="$(rclone link "pd:/$NAME" 2>/dev/null || true)"
-            [ -z "$LINK" ] || echo "### Pixeldrain: [$NAME]($LINK)" >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "::warning::Pixeldrain upload failed; the Actions artifact is still available."
-          fi
+          echo "uploading $NAME ($(du -h "$ZIP" | cut -f1)) to pixeldrain"
+          CODE="$(curl -s -w '%{http_code}' -o pd.json -T "$ZIP" -u ":$PIXELDRAIN_API_KEY" \
+            "https://pixeldrain.com/api/filesystem/me/$NAME?make_parents=true")"
+          echo "HTTP $CODE: $(cat pd.json 2>/dev/null)"
+          case "$CODE" in
+            200|201)
+              SHARE="$(curl -s -X POST -u ":$PIXELDRAIN_API_KEY" \
+                --data-urlencode action=update --data-urlencode shared=true \
+                "https://pixeldrain.com/api/filesystem/me/$NAME")"
+              ID="$(printf '%s' "$SHARE" | sed -n 's/.*"id"[^"]*"\([^"]*\)".*/\1/p')"
+              [ -n "$ID" ] && echo "### Pixeldrain: https://pixeldrain.com/d/$ID" >> "$GITHUB_STEP_SUMMARY" \
+                           || echo "::warning::uploaded but no share id in: $SHARE" ;;
+            403) echo "::warning::pixeldrain forbidden - the API key may lack filesystem access; regenerate it at pixeldrain.com/user/api_keys. Artifact still available." ;;
+            *)   echo "::warning::pixeldrain upload failed (HTTP $CODE). Artifact still available." ;;
+          esac
