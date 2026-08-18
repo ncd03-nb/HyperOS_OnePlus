@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-# HyperOS (2-4) -> OnePlus 13 auto-porter. OnePlus 13 only. See README.md.
-# vendor+odm from OP13 stock, system+system_ext+product from the HyperOS ROM.
+# HyperOS (2-4) -> OnePlus auto-porter (multi-device; see devices/ and README).
+# vendor+odm from the OnePlus stock ROM, system+system_ext+product from HyperOS.
 
 import argparse
 import os
@@ -15,9 +15,6 @@ sys.path.insert(0, os.path.join(HERE, "lib"))
 import payload_extractor  # noqa: E402  (built-in fallback dumper)
 import gdrive  # noqa: E402
 from erofs_config import sync_config, set_context  # noqa: E402
-
-# working MiuiCamera build (too big for git); fetched into RES when missing
-CAMERA_GDRIVE_ID = "125kqJ-vq_7pM85MRbny6lFazYHMUn0Yh"
 
 # partitions we take from each source ROM
 FROM_HOS4 = ["system", "system_ext", "product", "mi_ext"]
@@ -176,6 +173,20 @@ def prop_append(path, block, header=None):
     write_lines(path, lines)
 
 
+def prop_set(path, key, value):
+    """Replace key=... with key=value (append if absent). No-op if value None."""
+    if value is None or not os.path.exists(path):
+        return
+    lines = read_lines(path)
+    for i, l in enumerate(lines):
+        if l.startswith(key + "="):
+            lines[i] = key + "=" + value
+            break
+    else:
+        lines.append(key + "=" + value)
+    write_lines(path, lines)
+
+
 def prop_remove(path, predicate):
     if not os.path.exists(path):
         return
@@ -305,10 +316,60 @@ def tag_incremental(prod_bp):
     write_lines(prod_bp, lines)
 
 
-def ensure_camera(res_dir):
-    """The working MiuiCamera is too big for git, so fetch it into RES from
-    Google Drive if it isn't already there (local users who dropped it in keep
-    their copy; a fresh CI checkout downloads it)."""
+def load_device(name):
+    path = os.path.join(HERE, "devices", name + ".yml")
+    if not os.path.exists(path):
+        avail = ", ".join(sorted(f[:-4] for f in os.listdir(os.path.join(HERE, "devices"))
+                                 if f.endswith(".yml")))
+        die("unknown device '%s' (available: %s)" % (name, avail))
+    cfg = {}
+    for line in read_lines(path):
+        s = line.strip()
+        if not s or s.startswith("#") or ":" not in s:
+            continue
+        k, v = s.split(":", 1)
+        cfg[k.strip()] = v.strip()
+    return cfg
+
+
+def apply_device(work, cfg):
+    """Apply the device-specific values (FOD geometry, density, resolution,
+    marketname) over the shared OnePlus 13 baseline, and name the
+    device_features file after the target's ro.product.device."""
+    log("[DEVICE] %s (%s)" % (cfg.get("name", "?"), cfg.get("model", "?")))
+    vbp = os.path.join(work, "vendor", "build.prop")
+    prop_set(vbp, "persist.vendor.sys.fp.fod.location.X_Y", cfg.get("fod_location"))
+    prop_set(vbp, "persist.vendor.sys.fp.fod.size.width_height", cfg.get("fod_size"))
+    prop_set(vbp, "persist.vendor.sys.fp.fod.us.target", cfg.get("fod_target"))
+    prop_set(vbp, "persist.sys.miui_resolution", cfg.get("miui_resolution"))
+    pbp = os.path.join(work, "product", "etc", "build.prop")
+    prop_set(pbp, "persist.miui.density_v2", cfg.get("density"))
+    prop_set(pbp, "ro.sf.lcd_density", cfg.get("density"))
+    prop_set(os.path.join(work, "odm", "build.prop"),
+             "ro.product.odm.marketname", cfg.get("marketname"))
+    _name_device_features(work)
+
+
+def _name_device_features(work):
+    vbp = os.path.join(work, "vendor", "build.prop")
+    dev = None
+    for line in (read_lines(vbp) if os.path.exists(vbp) else []):
+        for key in ("ro.product.vendor.device=", "ro.product.device="):
+            if line.startswith(key):
+                dev = line.split("=", 1)[1].strip()
+                break
+        if dev:
+            break
+    dfdir = os.path.join(work, "product", "etc", "device_features")
+    src = os.path.join(dfdir, "ossi.xml")  # the RES device_features template
+    if dev and os.path.exists(src) and not os.path.exists(os.path.join(dfdir, dev + ".xml")):
+        shutil.copy2(src, os.path.join(dfdir, dev + ".xml"))
+        log("    device_features -> %s.xml" % dev)
+
+
+def ensure_camera(res_dir, gdrive_id):
+    """Fetch the working MiuiCamera into RES from Google Drive when it isn't
+    already present (too big for git)."""
     dest = os.path.join(res_dir, "product", "priv-app", "MiuiCamera",
                         "MiuiCamera.apk")
     if os.path.exists(dest):
@@ -317,7 +378,7 @@ def ensure_camera(res_dir):
     priv_app = os.path.join(res_dir, "product", "priv-app")
     os.makedirs(priv_app, exist_ok=True)
     tmp_zip = os.path.join(res_dir, "_MiuiCamera.zip")
-    gdrive.download(CAMERA_GDRIVE_ID, tmp_zip, log=log)
+    gdrive.download(gdrive_id, tmp_zip, log=log)
     with zipfile.ZipFile(tmp_zip) as z:
         z.extractall(priv_app)
     os.remove(tmp_zip)
@@ -387,9 +448,12 @@ def make_zip(imgs, zip_path):
 # main
 def main(argv):
     ap = argparse.ArgumentParser(
-        description="HyperOS (2-4) -> OnePlus 13 auto-porter")
+        description="HyperOS (2-4) -> OnePlus auto-porter")
+    ap.add_argument("--device", required=True,
+                    help="target device, required (a name under devices/, "
+                         "e.g. PJZ110 or PLK110)")
     ap.add_argument("--stock", required=True,
-                    help="OnePlus 13 stock ROM: URL, zip, payload.bin or dir "
+                    help="OnePlus stock ROM: URL, zip, payload.bin or dir "
                          "(source of vendor + odm)")
     ap.add_argument("--hyperos", "--hos4", dest="hos4", required=True,
                     help="HyperOS ROM (2 to 4): URL, zip, payload.bin or dir "
@@ -398,11 +462,15 @@ def main(argv):
     ap.add_argument("--out", default="out", help="output directory")
     ap.add_argument("--res", default=os.path.join(HERE, "RES"),
                     help="RES overlay directory")
-    ap.add_argument("--name", default="HyperOS-OnePlus13-port",
+    ap.add_argument("--name", default=None,
                     help="base name for the output zip")
     ap.add_argument("--keep-work", action="store_true",
                     help="do not delete the working directory at the end")
     args = ap.parse_args(argv)
+
+    device = load_device(args.device)
+    if not args.name:
+        args.name = "HyperOS-%s-port" % args.device
 
     work = os.path.abspath(args.work)
     out = os.path.abspath(args.out)
@@ -437,9 +505,10 @@ def main(argv):
     log("== assembling ==")
     assemble(work, mi_ext_dir)
 
-    ensure_camera(args.res)
+    ensure_camera(args.res, device.get("camera_gdrive_id"))
     apply_res(work, args.res)
     apply_fixes(work)
+    apply_device(work, device)
 
     log("== syncing SELinux config ==")
     for part in PACK:

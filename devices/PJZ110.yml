@@ -1,0 +1,11 @@
+# OnePlus 13
+name: OnePlus 13
+model: PJZ110
+status: Fully Supported
+density: 600
+miui_resolution: 1440,3168,480
+fod_location: 628,2200
+fod_size: 184,184
+fod_target: 616,2388,824,2616
+marketname: 一加 13
+camera_gdrive_id: 125kqJ-vq_7pM85MRbny6lFazYHMUn0Yh

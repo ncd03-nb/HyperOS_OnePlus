@@ -1,10 +1,17 @@
-name: Build HyperOS for OnePlus 13
+name: Build HyperOS for OnePlus
 
 on:
   workflow_dispatch:
     inputs:
+      device:
+        description: "Target device"
+        required: true
+        type: choice
+        options:
+          - PJZ110
+          - PLK110
       stock_url:
-        description: "OnePlus 13 stock ROM link (full OTA/fastboot zip or payload.bin)"
+        description: "OnePlus stock ROM link for that device (full OTA/fastboot zip or payload.bin)"
         required: true
         type: string
       hyperos_url:
@@ -12,9 +19,9 @@ on:
         required: true
         type: string
       name:
-        description: "Output name for the flashable zip"
+        description: "Output name for the flashable zip (optional)"
         required: false
-        default: "HyperOS-OnePlus13-port"
+        default: ""
         type: string
       upload_pixeldrain:
         description: "Upload the finished zip to pixeldrain (needs PIXELDRAIN_API_KEY)"
@@ -41,12 +48,14 @@ jobs:
 
       - name: Build port
         run: |
-          ./port.sh --stock "${{ inputs.stock_url }}" --hyperos "${{ inputs.hyperos_url }}" --name "${{ inputs.name }}"
+          ARGS=(--device "${{ inputs.device }}" --stock "${{ inputs.stock_url }}" --hyperos "${{ inputs.hyperos_url }}")
+          [ -n "${{ inputs.name }}" ] && ARGS+=(--name "${{ inputs.name }}")
+          ./port.sh "${ARGS[@]}"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ inputs.name }}
+          name: HyperOS-${{ inputs.device }}-port
           path: out/*.zip
           if-no-files-found: error
           compression-level: 0

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# HyperOS (2-4) -> OnePlus 13 auto-porter. OnePlus 13 only.
-#   ./port.sh --stock <op13-rom> --hyperos <hyperos-rom>
+# HyperOS (2-4) -> OnePlus auto-porter (multi-device; see devices/).
+#   ./port.sh --device <PJZ110|PLK110> --stock <stock-rom> --hyperos <hyperos-rom>
 # Inputs: URL, zip, payload.bin or an unpacked directory.
 
 set -euo pipefail
@@ -11,8 +11,6 @@ EXTRACT="$EROFS_BIN/extract.erofs"
 FIXES="$HERE/fixes"
 PY="${PYTHON:-python3}"
 SIG="palaziks"
-# working MiuiCamera build (too big for git); fetched into RES when missing
-CAMERA_GDRIVE_ID="125kqJ-vq_7pM85MRbny6lFazYHMUn0Yh"
 
 PACK_PARTS=(system system_ext product vendor odm)
 
@@ -30,10 +28,11 @@ quiet_run() {
 }
 
 # args
-STOCK=""; HOS4=""; WORK="work"; OUT="out"; RES="$HERE/RES"
-NAME="HyperOS-OnePlus13-port"; KEEP_WORK=0
+DEVICE=""; STOCK=""; HOS4=""; WORK="work"; OUT="out"; RES="$HERE/RES"
+NAME=""; KEEP_WORK=0
 while [ $# -gt 0 ]; do
     case "$1" in
+        --device) DEVICE="$2"; shift 2;;
         --stock) STOCK="$2"; shift 2;;
         --hos4|--hyperos) HOS4="$2"; shift 2;;
         --work) WORK="$2"; shift 2;;
@@ -45,8 +44,21 @@ while [ $# -gt 0 ]; do
         *) die "unknown arg: $1";;
     esac
 done
-[ -n "$STOCK" ] || die "--stock is required (OnePlus 13 stock ROM)"
+[ -n "$DEVICE" ] || die "--device is required (a name under devices/, e.g. PJZ110 or PLK110)"
+[ -f "$HERE/devices/$DEVICE.yml" ] || die "unknown device: $DEVICE (see devices/)"
+[ -n "$STOCK" ] || die "--stock is required (OnePlus stock ROM)"
 [ -n "$HOS4" ] || die "--hyperos is required (HyperOS 2-4 ROM)"
+[ -n "$NAME" ] || NAME="HyperOS-$DEVICE-port"
+
+# load devices/<DEVICE>.yml into DEV_<key> vars
+while IFS= read -r line; do
+    case "$line" in ""|\#*) continue;; esac
+    case "$line" in *:*) : ;; *) continue;; esac
+    k="${line%%:*}"; v="${line#*:}"
+    k="$(printf '%s' "$k" | tr -d '[:space:]')"
+    v="$(printf '%s' "$v" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+    [ -n "$k" ] && eval "DEV_${k}=\$v"
+done < "$HERE/devices/$DEVICE.yml"
 [ -x "$MKFS" ] || die "missing $MKFS"
 [ -x "$EXTRACT" ] || die "missing $EXTRACT"
 
@@ -172,6 +184,16 @@ apply_fix() {   # target header fixfile
     mapfile -t lines < <(grep -v '^[[:space:]]*#' "$fixfile" | grep -v '^[[:space:]]*$' || true)
     [ ${#lines[@]} -gt 0 ] && prop_append "$target" "$header" "${lines[@]}"
 }
+prop_set() {   # file key value ; replace key=... (append if absent)
+    local file="$1" key="$2" val="$3"
+    [ -f "$file" ] && [ -n "$val" ] || return 0
+    local esc; esc="$(printf '%s' "$key" | sed 's/[.[\*^$/]/\\&/g')"
+    if grep -q "^${esc}=" "$file"; then
+        sed -i "s/^${esc}=.*/${key}=${val}/" "$file"
+    else
+        printf '%s=%s\n' "$key" "$val" >> "$file"
+    fi
+}
 
 log "== resolving inputs =="
 STOCK_SRC="$(resolve_input "$STOCK" "$DL" stock)"
@@ -245,7 +267,7 @@ CAM="$RES/product/priv-app/MiuiCamera/MiuiCamera.apk"
 if [ ! -f "$CAM" ]; then
     log "[RES] MiuiCamera not present; downloading from Google Drive"
     mkdir -p "$RES/product/priv-app"
-    run "$PY" "$HERE/lib/gdrive.py" "$CAMERA_GDRIVE_ID" "$RES/_MiuiCamera.zip"
+    run "$PY" "$HERE/lib/gdrive.py" "${DEV_camera_gdrive_id:-}" "$RES/_MiuiCamera.zip"
     run unzip -o -q "$RES/_MiuiCamera.zip" -d "$RES/product/priv-app/"
     rm -f "$RES/_MiuiCamera.zip"
     [ -f "$CAM" ] || die "camera zip did not contain MiuiCamera/MiuiCamera.apk"
@@ -271,6 +293,22 @@ if [ -f "$PC" ]; then
     apply_fix "$PC" "# FOD / status-bar / face prop contexts ($SIG)" vendor.property_contexts
 else
     log "    WARNING: vendor_property_contexts missing; FOD props unreadable"
+fi
+
+# device-specific overrides on top of the shared baseline
+log "[DEVICE] ${DEV_name:-$DEVICE} ($DEVICE)"
+prop_set "$VENDOR/build.prop" "persist.vendor.sys.fp.fod.location.X_Y" "${DEV_fod_location:-}"
+prop_set "$VENDOR/build.prop" "persist.vendor.sys.fp.fod.size.width_height" "${DEV_fod_size:-}"
+prop_set "$VENDOR/build.prop" "persist.vendor.sys.fp.fod.us.target" "${DEV_fod_target:-}"
+prop_set "$VENDOR/build.prop" "persist.sys.miui_resolution" "${DEV_miui_resolution:-}"
+prop_set "$PROD_BP" "persist.miui.density_v2" "${DEV_density:-}"
+prop_set "$PROD_BP" "ro.sf.lcd_density" "${DEV_density:-}"
+prop_set "$ODM/build.prop" "ro.product.odm.marketname" "${DEV_marketname:-}"
+# name device_features after the port's ro.product.device
+DEVNAME="$(grep -m1 -E '^ro\.product\.(vendor\.)?device=' "$VENDOR/build.prop" 2>/dev/null | cut -d= -f2 | tr -d '[:space:]')"
+DF="$WORK/product/etc/device_features"
+if [ -n "$DEVNAME" ] && [ -f "$DF/ossi.xml" ] && [ ! -f "$DF/$DEVNAME.xml" ]; then
+    cp "$DF/ossi.xml" "$DF/$DEVNAME.xml"; log "    device_features -> $DEVNAME.xml"
 fi
 
 # SELinux config synthesis (delegated to Python helper)
