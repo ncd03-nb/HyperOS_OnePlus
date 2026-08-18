@@ -1,0 +1,22 @@
+# FOD / status-bar / face prop contexts (palaziks).
+# group 1: let system_server READ the FOD props (else Settings shows no FOD).
+ro.hardware.fp.               u:object_r:exported_default_prop:s0
+persist.vendor.sys.fp.        u:object_r:exported_default_prop:s0
+ro.vendor.mi_sf.              u:object_r:exported_default_prop:s0
+ro.vendor.fps.                u:object_r:exported_default_prop:s0
+ro.vendor.all_modes.          u:object_r:exported_default_prop:s0
+ro.vendor.touchfeature.       u:object_r:exported_default_prop:s0
+ro.vendor.video_box.          u:object_r:exported_default_prop:s0
+ro.vendor.video.style.        u:object_r:exported_default_prop:s0
+ro.vendor.media.video.style.  u:object_r:exported_default_prop:s0
+ro.vendor.qos.                u:object_r:exported_default_prop:s0
+# group 2: let the OnePlus fingerprint HAL SET its own props at init.
+# vendor_finerprint_optical_rawdata is OnePlus's own (misspelled) type; do NOT
+# use oppo_fingerprint_prop here, it has no role binding and bootloops.
+persist.vendor.fingerprint.   u:object_r:vendor_finerprint_optical_rawdata:s0
+persist.vendor.fp.            u:object_r:vendor_finerprint_optical_rawdata:s0
+persist.vendor.side.fp.       u:object_r:vendor_finerprint_optical_rawdata:s0
+vendor.oplus.fingerprint.     u:object_r:vendor_finerprint_optical_rawdata:s0
+# status-bar colour pick + OnePlus face HAL image props (read by the HAL).
+ro.vendor.colorpick_adjust    u:object_r:exported_default_prop:s0
+ro.oplus.image.               u:object_r:exported_default_prop:s0

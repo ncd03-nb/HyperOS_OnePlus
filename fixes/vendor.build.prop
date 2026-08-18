@@ -1,0 +1,12 @@
+# FOD fix (palaziks). OnePlus 13 (dodge / PJZ110) ultrasonic-panel values.
+# ro.hardware.* / persist.vendor.* / vendor.* are vendor-namespace props: init
+# silently drops them from system/build.prop, so they must live here.
+ro.hardware.fp.fod.c=true
+ro.hardware.fp.fod=true
+persist.vendor.sys.fp.vendor=true
+persist.vendor.sys.fp.fod.location.X_Y=628,2200
+persist.vendor.sys.fp.fod.size.width_height=184,184
+persist.vendor.sys.fp.fod.us.target=616,2388,824,2616
+persist.vendor.sys.fp.fod.delay.fingerdown.ms=20
+# enrolment gate: without cali=1 enrolment dies with "invalid cali data".
+vendor.fingerprint.cali=1

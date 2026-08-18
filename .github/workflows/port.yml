@@ -1,0 +1,74 @@
+name: Build HyperOS 4 for OnePlus 13
+
+on:
+  workflow_dispatch:
+    inputs:
+      stock_url:
+        description: "OnePlus 13 stock ROM link (full OTA/fastboot zip or payload.bin) — source of vendor + odm"
+        required: true
+        type: string
+      hos4_url:
+        description: "HyperOS 4 ROM link (full recovery/OTA zip or payload.bin) — source of system + system_ext + product"
+        required: true
+        type: string
+      name:
+        description: "Output name for the flashable zip"
+        required: false
+        default: "HyperOS4-OnePlus13-port"
+        type: string
+      upload_pixeldrain:
+        description: "Upload the finished zip to pixeldrain (needs the PIXELDRAIN_API_KEY secret)"
+        required: false
+        default: true
+        type: boolean
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install requirements
+        run: |
+          chmod +x requirements.sh port.sh
+          ./requirements.sh
+
+      - name: Free up disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /opt/hostedtoolcache/CodeQL || true
+          df -h
+
+      - name: Build port
+        run: |
+          ./port.sh --stock "${{ inputs.stock_url }}" --hos4 "${{ inputs.hos4_url }}" --name "${{ inputs.name }}"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.name }}
+          path: out/*.zip
+          if-no-files-found: error
+          compression-level: 0
+
+      - name: Upload to pixeldrain
+        if: ${{ inputs.upload_pixeldrain }}
+        env:
+          PIXELDRAIN_API_KEY: ${{ secrets.PIXELDRAIN_API_KEY }}
+        run: |
+          if [ -z "$PIXELDRAIN_API_KEY" ]; then
+            echo "::warning::Upload to pixeldrain is on but the PIXELDRAIN_API_KEY secret is not set. Add it under Settings > Secrets and variables > Actions. The build zip is still available as a workflow artifact above."
+            exit 0
+          fi
+          ZIP="$(ls out/*.zip | head -n1)"
+          echo "uploading $(basename "$ZIP") to pixeldrain"
+          RESP="$(curl -s -T "$ZIP" -u ":$PIXELDRAIN_API_KEY" \
+            "https://pixeldrain.com/api/file/$(basename "$ZIP")")"
+          FID="$(printf '%s' "$RESP" | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
+          if [ -n "$FID" ]; then
+            echo "pixeldrain: https://pixeldrain.com/u/$FID"
+            echo "### Pixeldrain: https://pixeldrain.com/u/$FID" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::error::pixeldrain upload failed: $RESP"
+            exit 1
+          fi

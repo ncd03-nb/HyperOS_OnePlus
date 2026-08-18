@@ -1,0 +1,6 @@
+# Xiaomi attestation block (palaziks).
+ro.product.odm.brand=Xiaomi
+ro.product.odm.manufacturer=Xiaomi
+ro.product.odm.marketname=一加 13
+ro.product.brand_for_attestation=Xiaomi
+ro.product.manufacturer_for_attestation=Xiaomi

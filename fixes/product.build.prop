@@ -1,0 +1,5 @@
+# density (palaziks)
+persist.miui.density_v2=600
+ro.sf.lcd_density=600
+# status bar tint fix (palaziks)
+debug.layered.strategy.phone=99

@@ -1,0 +1,12 @@
+The working MiuiCamera build is too large for git (~165 MB unpacked / ~104 MB
+zipped), so it is not committed here.
+
+You do NOT need to do anything: the porter downloads it from Google Drive into
+this folder automatically (both locally and on GitHub Actions) if it isn't
+already present, producing:
+    MiuiCamera/MiuiCamera.apk
+    MiuiCamera/oat/arm64/MiuiCamera.odex
+    MiuiCamera/oat/arm64/MiuiCamera.vdex
+
+If you already have that MiuiCamera/ folder, drop it here and the porter will
+use your copy instead of downloading.

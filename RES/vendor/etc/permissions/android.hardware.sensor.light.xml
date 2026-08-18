@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+     Feature for devices with an ambient light sensor.
+
+     The OnePlus 13 has one ("tcs3720 Oplus Ambient Light Sensor", type 5, vendor oplus),
+     but the QTI reference file only ships under vendor/etc/permissions/sku_*/ with the
+     feature commented out, and this device boots with
+     ro.boot.product.hardware.sku=23 - which matches no sku_* directory - so the feature
+     was never declared. Declared here at the top level instead.
+-->
+<permissions>
+    <feature name="android.hardware.sensor.light" />
+</permissions>

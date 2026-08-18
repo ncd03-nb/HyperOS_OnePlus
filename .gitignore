@@ -1,0 +1,9 @@
+work/
+out/
+__pycache__/
+*.pyc
+*.img
+!RES/**/*.img
+
+# camera apk is fetched on GitHub Actions (too big for git)
+RES/product/priv-app/MiuiCamera/
