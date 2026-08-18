@@ -19,7 +19,7 @@ and expect a boot.
 
 - **vendor** and **odm** are taken from the **OnePlus 13 stock ROM**. They stay
   OnePlus. HyperOS runs on top of the OnePlus vendor blobs, not Xiaomi's.
-- **system**, **system_ext** and **product** come from the **HyperOS 4 ROM**,
+- **system**, **system_ext** and **product** come from the **HyperOS ROM**,
   with `mi_ext` folded into `system` and `product`.
 
 ## Requirements
@@ -38,10 +38,10 @@ built-in Python payload extractor, so it still works offline.
 
 ```
 ./requirements.sh
-./port.sh --stock <oneplus13-stock> --hos4 <hyperos4-rom>
+./port.sh --stock <oneplus13-stock> --hyperos <hyperos-rom>
 ```
 
-`--stock` and `--hos4` each accept:
+`--stock` and `--hyperos` each accept:
 
 - a direct download link,
 - a local `.zip` (full OTA / fastboot / recovery package),
@@ -71,9 +71,9 @@ fallback (`lib/payload_extractor.py`). Use whichever you prefer.
 1. Fork this repo.
 2. If you want the automatic pixeldrain upload, add your key under
    **Settings → Secrets and variables → Actions** as `PIXELDRAIN_API_KEY`.
-3. Go to the **Actions** tab, pick **Build HyperOS 4 for OnePlus 13**, and hit
+3. Go to the **Actions** tab, pick **Build HyperOS for OnePlus 13**, and hit
    **Run workflow**.
-4. Paste the OnePlus 13 stock ROM link and the HyperOS 4 link.
+4. Paste the OnePlus 13 stock ROM link and the HyperOS link.
 
 The **Upload to pixeldrain** toggle is on by default. The upload goes through
 rclone's pixeldrain backend (the full ROM zip is too big for the plain upload
@@ -84,7 +84,7 @@ finishes — it just skips the upload.
 
 ## What it fixes
 
-A straight port of HyperOS 4 onto the OnePlus 13 boots with several things
+A straight port of HyperOS onto the OnePlus 13 boots with several things
 broken. This porter bakes in the fixes for them:
 
 - **Under-display fingerprint (FOD).** Out of the box there is no way to enrol a

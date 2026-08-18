@@ -9,7 +9,7 @@
 #
 # Supports ONLY the OnePlus 13.
 #
-#   ./port.sh --stock <op13-rom> --hos4 <hyperos-rom>
+#   ./port.sh --stock <op13-rom> --hyperos <hyperos-rom>   (HyperOS 2 to 4)
 #
 # Inputs may be a URL, a zip, a payload.bin, or an unpacked directory.
 
@@ -56,7 +56,7 @@ while [ $# -gt 0 ]; do
     esac
 done
 [ -n "$STOCK" ] || die "--stock is required (OnePlus 13 stock ROM)"
-[ -n "$HOS4" ] || die "--hos4 is required (HyperOS 4 ROM)"
+[ -n "$HOS4" ] || die "--hyperos is required (HyperOS 2-4 ROM)"
 [ -x "$MKFS" ] || die "missing $MKFS"
 [ -x "$EXTRACT" ] || die "missing $EXTRACT"
 
@@ -185,11 +185,11 @@ apply_fix() {   # target header fixfile
 # ===========================================================================
 log "== resolving inputs =="
 STOCK_SRC="$(resolve_input "$STOCK" "$DL" stock)"
-HOS4_SRC="$(resolve_input "$HOS4" "$DL" hos4)"
+HOS4_SRC="$(resolve_input "$HOS4" "$DL" hyperos)"
 
 log "== extracting payloads =="
 get_images "$STOCK_SRC" "$DL/stock_img" stock vendor odm
-get_images "$HOS4_SRC" "$DL/hos4_img" hos4 system system_ext product mi_ext
+get_images "$HOS4_SRC" "$DL/hyperos_img" hyperos system system_ext product mi_ext
 
 log "== unpacking images =="
 unpack_erofs "$IMG_vendor" "$WORK"

@@ -75,4 +75,4 @@ install_payload_dumper() {
 install_packages
 install_payload_dumper
 chmod +x "$HERE/bin/Linux/x86_64/mkfs.erofs" "$HERE/bin/Linux/x86_64/extract.erofs" 2>/dev/null || true
-echo "== requirements installed. now run:  ./port.sh --stock <op13-rom> --hos4 <hyperos4-rom> =="
+echo "== requirements installed. now run:  ./port.sh --stock <op13-rom> --hyperos <hyperos-rom> =="

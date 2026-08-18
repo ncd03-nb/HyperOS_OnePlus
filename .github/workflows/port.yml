@@ -1,4 +1,4 @@
-name: Build HyperOS 4 for OnePlus 13
+name: Build HyperOS for OnePlus 13
 
 on:
   workflow_dispatch:
@@ -7,14 +7,14 @@ on:
         description: "OnePlus 13 stock ROM link (full OTA/fastboot zip or payload.bin) — source of vendor + odm"
         required: true
         type: string
-      hos4_url:
-        description: "HyperOS 4 ROM link (full recovery/OTA zip or payload.bin) — source of system + system_ext + product"
+      hyperos_url:
+        description: "HyperOS ROM link (HyperOS 2 to 4, full recovery/OTA zip or payload.bin) — source of system + system_ext + product"
         required: true
         type: string
       name:
         description: "Output name for the flashable zip"
         required: false
-        default: "HyperOS4-OnePlus13-port"
+        default: "HyperOS-OnePlus13-port"
         type: string
       upload_pixeldrain:
         description: "Upload the finished zip to pixeldrain (needs the PIXELDRAIN_API_KEY secret)"
@@ -41,7 +41,7 @@ jobs:
 
       - name: Build port
         run: |
-          ./port.sh --stock "${{ inputs.stock_url }}" --hos4 "${{ inputs.hos4_url }}" --name "${{ inputs.name }}"
+          ./port.sh --stock "${{ inputs.stock_url }}" --hyperos "${{ inputs.hyperos_url }}" --name "${{ inputs.name }}"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

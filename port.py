@@ -429,8 +429,8 @@ def main(argv):
     ap.add_argument("--stock", required=True,
                     help="OnePlus 13 stock ROM: URL, zip, payload.bin or dir "
                          "(source of vendor + odm)")
-    ap.add_argument("--hos4", "--hyperos", dest="hos4", required=True,
-                    help="HyperOS ROM (2, 3 or 4): URL, zip, payload.bin or dir "
+    ap.add_argument("--hyperos", "--hos4", dest="hos4", required=True,
+                    help="HyperOS ROM (2 to 4): URL, zip, payload.bin or dir "
                          "(source of system + system_ext + product)")
     ap.add_argument("--work", default="work", help="working directory")
     ap.add_argument("--out", default="out", help="output directory")
@@ -456,14 +456,14 @@ def main(argv):
     # --- resolve + fetch inputs ---
     log("== resolving inputs ==")
     stock_src = resolve_input(args.stock, dl, "stock")
-    hos4_src = resolve_input(args.hos4, dl, "hos4")
+    hos4_src = resolve_input(args.hos4, dl, "hyperos")
 
     # --- get raw images ---
     log("== extracting payloads ==")
     stock_imgs = get_images(stock_src, os.path.join(dl, "stock_img"),
                             FROM_STOCK, "stock")
-    hos4_imgs = get_images(hos4_src, os.path.join(dl, "hos4_img"),
-                           FROM_HOS4, "hos4")
+    hos4_imgs = get_images(hos4_src, os.path.join(dl, "hyperos_img"),
+                           FROM_HOS4, "hyperos")
 
     # --- unpack erofs into work tree ---
     log("== unpacking images ==")
