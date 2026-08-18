@@ -288,9 +288,10 @@ def assemble(work, mi_ext_dir):
     log("[5] moving product/pangu/system -> system/system")
     move_tree(os.path.join(product, "pangu", "system"), system_sys)
 
-    # --- step 6: merge Xiaomi vendor build.prop tail into OnePlus vendor ---
-    log("[6] merging Xiaomi vendor build.prop tail into OnePlus vendor")
-    merge_vendor_tail(work, os.path.join(vendor, "build.prop"))
+    # --- step 6: OP13 vendor props (the "# end of file" block) ---
+    # These live in fixes/vendor.build.prop and are appended in apply_fixes(),
+    # so there is nothing to pull from the Xiaomi vendor here.
+    log("[6] OP13 vendor props applied from fixes/vendor.build.prop (in [FIX])")
 
     # --- step 7: odm attestation block ---
     log("[7] odm/build.prop: Xiaomi attestation block")
@@ -337,35 +338,6 @@ def tag_incremental(prod_bp):
     write_lines(prod_bp, lines)
 
 
-def merge_vendor_tail(work, vendor_bp):
-    """Step 6: take the lines that appear after a '#end of file' marker in the
-    Xiaomi vendor/build.prop and append them to the OnePlus vendor/build.prop,
-    skipping ro.oplus.image.vendor.version=. The Xiaomi vendor tail carries the
-    vendor-namespace props HyperOS expects; the OnePlus vendor is kept as the
-    base (per requirement: vendor + odm come from the OnePlus 13)."""
-    xi_bp = os.path.join(work, "_xiaomi_vendor_build.prop")
-    if not os.path.exists(xi_bp) or not os.path.exists(vendor_bp):
-        log("    (no Xiaomi vendor build.prop captured; skipping tail merge)")
-        return
-    xi_lines = read_lines(xi_bp)
-    marker = None
-    for i, l in enumerate(xi_lines):
-        if l.strip().lower().replace(" ", "") == "#endoffile":
-            marker = i
-            break
-    if marker is None:
-        log("    (no '#end of file' marker in Xiaomi vendor; skipping)")
-        return
-    tail = []
-    for l in xi_lines[marker + 1:]:
-        if not l.strip():
-            continue
-        if l.strip().startswith("ro.oplus.image.vendor.version="):
-            continue
-        tail.append(l)
-    prop_append(vendor_bp, tail, header="# " + SIGNATURE + " (from Xiaomi vendor)")
-
-
 def ensure_camera(res_dir):
     """The working MiuiCamera is too big for git, so fetch it into RES from
     Google Drive if it isn't already there (local users who dropped it in keep
@@ -408,13 +380,13 @@ def apply_res(work, res_dir):
 
 
 def apply_fixes(work):
-    """Vendor-side line fixes: the FOD build.prop block and the SELinux
-    property_contexts. (Product build.prop fixes are applied in step 10;
-    whole-file overlays live in RES/.)"""
+    """Vendor-side line fixes: the OP13 vendor props (step-6 '# end of file'
+    block + FOD) and the SELinux property_contexts. (Product build.prop fixes
+    are applied in step 10; whole-file overlays live in RES/.)"""
     log("[FIX] applying vendor build.prop + property_contexts fixes")
     vendor_bp = os.path.join(work, "vendor", "build.prop")
     prop_append(vendor_bp, read_fix("vendor.build.prop"),
-                header="# FOD fix (palaziks)")
+                header="# OP13 vendor props + FOD (palaziks)")
 
     pc = os.path.join(work, "vendor", "etc", "selinux", "vendor_property_contexts")
     if os.path.exists(pc):
@@ -502,28 +474,6 @@ def main(argv):
     # mi_ext is unpacked to a side dir (folded in, never packed on its own)
     mi_ext_dir = os.path.join(work, "mi_ext")
     unpack_erofs(hos4_imgs["mi_ext"], work)
-
-    # capture the Xiaomi vendor build.prop tail for step 6 (vendor stays OnePlus)
-    xv_bp = os.path.join(work, "_xiaomi_vendor_build.prop")
-    try:
-        tmp_v = os.path.join(dl, "_xiv")
-        xi_vendor_img = None
-        # try to also pull Xiaomi vendor from the HOS4 source for the tail merge
-        if not os.path.isdir(hos4_src):
-            xi_vendor_img = dump_payload(hos4_src, tmp_v, ["vendor"]).get("vendor")
-        elif os.path.exists(os.path.join(hos4_src, "vendor.img")):
-            xi_vendor_img = os.path.join(hos4_src, "vendor.img")
-        if xi_vendor_img and os.path.exists(xi_vendor_img):
-            tmp_vx = os.path.join(dl, "_xivx")
-            # partition root is '/', so build.prop is at /build.prop
-            run([EXTRACT, "-i", xi_vendor_img, "-X", "/build.prop",
-                 "-s", "-f", "-o", tmp_vx], quiet=True)
-            for root, _d, files in os.walk(tmp_vx):
-                if "build.prop" in files:
-                    shutil.copy2(os.path.join(root, "build.prop"), xv_bp)
-                    break
-    except Exception as e:  # noqa: BLE001  (tail merge is best-effort)
-        log("    (could not capture Xiaomi vendor build.prop: %s)" % e)
 
     # --- assemble (12 steps) ---
     log("== assembling ==")

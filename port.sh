@@ -200,22 +200,6 @@ unpack_erofs "$IMG_product" "$WORK"
 unpack_erofs "$IMG_mi_ext" "$WORK"
 MIEXT="$WORK/mi_ext"
 
-# capture Xiaomi vendor build.prop tail for step 6 (vendor itself stays OnePlus)
-XV_BP="$WORK/_xiaomi_vendor_build.prop"
-XI_VIMG=""
-if [ -d "$HOS4_SRC" ]; then
-    [ -f "$HOS4_SRC/vendor.img" ] && XI_VIMG="$HOS4_SRC/vendor.img"
-else
-    dump_payload "$HOS4_SRC" "$DL/_xiv" vendor 2>/dev/null || true
-    [ -f "$DL/_xiv/vendor.img" ] && XI_VIMG="$DL/_xiv/vendor.img"
-fi
-if [ -n "$XI_VIMG" ]; then
-    # partition root is '/', so build.prop is at /build.prop (not /vendor/...)
-    quiet_run "$EXTRACT" -i "$XI_VIMG" -X /build.prop -s -f -o "$DL/_xivx" || true
-    FOUND="$(find "$DL/_xivx" -name build.prop -type f 2>/dev/null | head -1)"
-    [ -n "$FOUND" ] && cp "$FOUND" "$XV_BP" || true
-fi
-
 # ---- 12-step assembly -----------------------------------------------------
 PRODUCT="$WORK/product"; SYS="$WORK/system/system"
 SYSEXT="$WORK/system_ext"; VENDOR="$WORK/vendor"; ODM="$WORK/odm"
@@ -245,20 +229,10 @@ if [ -d "$PRODUCT/pangu/system" ]; then
     cp -a "$PRODUCT/pangu/system/." "$SYS/" && rm -rf "$PRODUCT/pangu/system"
 fi
 
-log "[6] merging Xiaomi vendor build.prop tail into OnePlus vendor"
-if [ -f "$XV_BP" ]; then
-    # lines after a '#end of file' marker, minus ro.oplus.image.vendor.version
-    awk '
-        tolower($0) ~ /^#[[:space:]]*end[[:space:]]*of[[:space:]]*file/ {p=1; next}
-        p && NF && $0 !~ /^ro\.oplus\.image\.vendor\.version=/ { print }
-    ' "$XV_BP" > "$WORK/_vtail.txt" || true
-    if [ -s "$WORK/_vtail.txt" ]; then
-        mapfile -t VTAIL < "$WORK/_vtail.txt"
-        prop_append "$VENDOR/build.prop" "# $SIG (from Xiaomi vendor)" "${VTAIL[@]}"
-    fi
-else
-    log "    (no Xiaomi vendor build.prop captured; skipping tail merge)"
-fi
+# step 6: OP13 vendor props (the "# end of file" block) live in
+# fixes/vendor.build.prop and are applied in the [FIX] section below, so there
+# is nothing to pull from the Xiaomi vendor here.
+log "[6] OP13 vendor props applied from fixes/vendor.build.prop (in [FIX])"
 
 log "[7] odm/build.prop: Xiaomi attestation block"
 apply_fix "$ODM/build.prop" "# $SIG" odm.build.prop
@@ -303,7 +277,7 @@ fi
 
 # ---- vendor line-based fixes ----------------------------------------------
 log "[FIX] vendor build.prop + property_contexts fixes"
-apply_fix "$VENDOR/build.prop" "# FOD fix ($SIG)" vendor.build.prop
+apply_fix "$VENDOR/build.prop" "# OP13 vendor props + FOD ($SIG)" vendor.build.prop
 
 PC="$VENDOR/etc/selinux/vendor_property_contexts"
 if [ -f "$PC" ]; then

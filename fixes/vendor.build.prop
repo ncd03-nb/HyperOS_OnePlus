@@ -1,6 +1,97 @@
-# FOD fix (palaziks). OnePlus 13 (dodge / PJZ110) ultrasonic-panel values.
-# ro.hardware.* / persist.vendor.* / vendor.* are vendor-namespace props: init
-# silently drops them from system/build.prop, so they must live here.
+# OnePlus 13 vendor props (palaziks) - appended to the freshly unpacked
+# OP13 vendor. These are the lines after "# end of file" in the reference
+# modified OP13 vendor build.prop, minus ro.oplus.image.vendor.version=.
+# (Porting step 6 + the FOD fix, in one place - no Xiaomi vendor needed.)
+
+# Fix 120HZ
+ro.vendor.touchfeature.type=183
+ro.vendor.audio.spatializer.support.speaker=true
+vendor.audio.useXiaomiSpatializer=true
+audio.spatializer.pose_predictor_type=2
+audio.spatializer.prediction_duration_ms=50
+persist.vendor.audio.effectimplenter=dolby
+persist.vendor.audio.spatializer.enable=false
+ro.vendor.audio.dolby.spatial.profile=dynamic
+ro.vendor.audio.karaoke.enable=true
+ro.surface_flinger.enable_frame_rate_override=false
+ro.vendor.colorpick_adjust=true
+ro.vendor.all_modes.colorpick_adjust=true
+ro.vendor.display.type=oled
+ro.vendor.xiaomi.bl.poll=true
+ro.vendor.histogram.enable=true
+ro.vendor.cabc.enable=fasle
+ro.vendor.bcbc.enable=true
+ro.vendor.fps.switch.default=true
+ro.vendor.display.default_fps=60
+ro.vendor.sre.enable=true
+ro.vendor.gcp.enable=1
+ro.vendor.localhbm.enable=true
+ro.vendor.video_box.version=2
+ro.vendor.soft_backlight.enable=true
+ro.vendor.hbm_backlight.enable=true
+ro.vendor.display.nature_mode.enable=true
+ro.vendor.display.ai_disp.enable=true
+ro.vendor.standard.video.enable=true
+vendor.display.use_layer_ext=0
+ro.vendor.display.mi_calib.enable=true
+ro.vendor.thermal.dimming.enable=true
+sys.displayfeature_hidl=false
+sys.displayfeature.entry.enable=true
+persist.vendor.dc_backlight.enable=false
+persist.vendor.dc_backlight.threshold=0
+vendor.display.enable_fb_scaling=1
+ro.vendor.display.touch.idle.enable=true
+ro.vendor.display.idle_default_fps=60
+ro.vendor.display.idle_default_fps.support=true
+ro.vendor.display.fod_monitor_default_fps=120
+ro.vendor.fps.switch.thermal=true
+vendor.display.disable_3d_adaptive_tm=0
+ro.vendor.display.dolbyvision.support=true
+ro.vendor.display.dynamic_refresh_rate=120,90,60,30:100,60,5
+ro.vendor.display.primary_idle_refresh_rate=60,10:528
+persist.vendor.disable_idle_fps=true
+persist.vendor.disable_idle_fps.threshold=528
+ro.vendor.display.ltpo.sync.tp=false
+vendor.display.disable_stc_dimming=1
+ro.vendor.display.switch_resolution.support=1
+ro.vendor.display.skip_idle_for_90hz=true
+ro.vendor.mi_sf.skip_90hz_forVrrVote=true
+ro.vendor.display.standard_d75_enable=true
+ro.vendor.display.mode_change_optimize.enable=true
+ro.vendor.mi_sf.ltpo.support=true
+sys.rhythmic_mode_default_level=50
+ro.vendor.display.dobly_dpu.enable=true
+ro.vendor.display.update_dbi_by_temperature=true
+ro.vendor.mi_sf.aod_mode_ddic_refresh_rate=10
+ro.vendor.mi_sf.enable_tp_idle_automode=true
+ro.vendor.mi_sf.enable_automode_for_maxfps_setting=true
+ro.vendor.mi_sf.supported_automode_maxfps_list=60,120
+ro.vendor.mi_sf.support_automode_for_normalfps=true
+ro.vendor.mi_sf.skip_promtionfps_for_90hz=true
+ro.vendor.mi_sf.set_gradient_idle_timer_ms=50000
+ro.vendor.mi_sf.support_gradient_idleframerate=true
+vendor.mi_sf.enable_second_refresh_rate_overlay=1
+ro.vendor.display.framework_thermal_dimming=true
+ro.vendor.mi_sf.support_barrage_recogn_althm=true
+ro.vendor.mi_sf.support_aidl_display_config=true
+ro.vendor.display.kernel_recoder_enable=true
+vendor.display.boost_cpu_layer_number_threshold=10
+ro.vendor.display.video_or_camera_fps.support=true
+ro.vendor.display.set_fps_stat_timer_ms=250
+debug.sf.set_idle_timer_ms=110
+persist.sys.miui_resolution=1440,3168,480
+vendor.display.disable_cwb_call=0
+vendor.display.reserved_writeback_config=1
+vendor.display.force_tonemapping=1
+persist.service.adb.enable=1
+persist.service.debuggable=1
+persist.sys.usb.config=mtp,adb
+ro.adb.secure=0
+ro.secure=0
+ro.debuggable=1
+# fod fix (must live in vendor/build.prop: ro.hardware.* -> vendor_default_prop and
+# persist.vendor.sys.* -> vendor_system_prop are vendor-namespace, so init silently
+# drops them when they are declared in system/build.prop)
 ro.hardware.fp.fod.c=true
 ro.hardware.fp.fod=true
 persist.vendor.sys.fp.vendor=true
@@ -8,5 +99,12 @@ persist.vendor.sys.fp.fod.location.X_Y=628,2200
 persist.vendor.sys.fp.fod.size.width_height=184,184
 persist.vendor.sys.fp.fod.us.target=616,2388,824,2616
 persist.vendor.sys.fp.fod.delay.fingerdown.ms=20
-# enrolment gate: without cali=1 enrolment dies with "invalid cali data".
+# FOD enrollment gate. UltraSonicCore::enroll() calls getFactoryCaliState(),
+# which is only property_get("vendor.fingerprint.cali", "0") == "1". If it is
+# not exactly "1" the HAL aborts with "invalid cali data" and notifyError(1)
+# (HW_UNAVAILABLE) before enrollment starts.
+# Normally the HAL sets this itself at init after do_load_calibrate_data()
+# loads /mnt/vendor/persist/fingerprint/fingerprint_cali.bin, but it cannot be
+# relied on here, so it is forced. 'vendor.fingerprint.' is intentionally left
+# unmapped in vendor_property_contexts so the HAL cannot overwrite this.
 vendor.fingerprint.cali=1
