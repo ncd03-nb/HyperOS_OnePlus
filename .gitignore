@@ -7,3 +7,6 @@ __pycache__/
 
 # camera apk is fetched on GitHub Actions (too big for git)
 RES/product/priv-app/MiuiCamera/
+
+# local AI/dev context
+CLAUDE.md
