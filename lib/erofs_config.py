@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Shared SELinux config synthesis (used by port.py and port.sh). Generates
+# SELinux config synthesis helper (called by port.sh). Generates
 # fs_config / file_contexts entries for moved/overlaid files, inheriting each
 # label from the nearest parent directory.
 #   erofs_config.py sync <work> <part>

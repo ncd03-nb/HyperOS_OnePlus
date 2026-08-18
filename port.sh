@@ -176,7 +176,7 @@ tag_incremental() {   # file
         { print }' "$file" > "$file.tmp"
     mv "$file.tmp" "$file"
 }
-# fixes/ blocks are shared with port.py; a change to a fix is made in one place.
+# append a fixes/ block (comments/blanks stripped) under a header, idempotently
 apply_fix() {   # target header fixfile
     local target="$1" header="$2" fixfile="$FIXES/$3"
     [ -f "$fixfile" ] || return 0

@@ -60,9 +60,10 @@ Options:
 --keep-work           keep the working tree instead of cleaning it up
 ```
 
-There are two interchangeable front-ends — `port.sh` (Bash) and `port.py`
-(Python). They do the same job and share the SELinux config generator
-(`lib/erofs_config.py`) and the payload fallback (`lib/payload_extractor.py`).
+`port.sh` is the entry point. It's mostly Bash, and calls small Python helpers
+under `lib/` for the parts that are cleaner in Python — SELinux config synthesis
+(`lib/erofs_config.py`), the payload fallback (`lib/payload_extractor.py`) and
+the Google Drive download (`lib/gdrive.py`).
 
 ## GitHub Actions
 
