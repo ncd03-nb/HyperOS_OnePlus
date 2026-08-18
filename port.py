@@ -50,9 +50,16 @@ def die(msg):
     sys.exit(1)
 
 
-def run(cmd, **kw):
+def run(cmd, quiet=False, **kw):
     log("+ " + " ".join(str(c) for c in cmd))
-    subprocess.run(cmd, check=True, **kw)
+    if quiet:
+        # swallow the tool's own output, but surface it if the command fails
+        r = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, **kw)
+        if r.returncode != 0:
+            sys.stdout.write(r.stdout.decode("utf-8", "replace"))
+            raise subprocess.CalledProcessError(r.returncode, cmd)
+    else:
+        subprocess.run(cmd, check=True, **kw)
 
 
 # ---------------------------------------------------------------------------
@@ -127,11 +134,11 @@ def dump_payload(payload_path, out_dir, wanted):
     if not tool and os.path.exists(bundled):
         tool = bundled
     if tool:
-        log("using %s" % tool)
-        run([tool, "-p", ",".join(wanted), "-o", out_dir, payload_path])
+        log("extracting payload (%s) with %s" % (",".join(wanted), os.path.basename(tool)))
+        run([tool, "-p", ",".join(wanted), "-o", out_dir, payload_path], quiet=True)
     else:
-        log("payload-dumper-go not found; using built-in extractor")
-        payload_extractor.extract(payload_path, out_dir, wanted, log=log)
+        log("extracting payload (%s) with built-in extractor" % ",".join(wanted))
+        payload_extractor.extract(payload_path, out_dir, wanted, log=lambda *_a: None)
     return {p: os.path.join(out_dir, p + ".img") for p in wanted}
 
 
@@ -155,7 +162,8 @@ def get_images(resolved, out_dir, wanted, label):
 # erofs image  ->  files + config/<part>_{file_contexts,fs_config,fs_options}
 # ---------------------------------------------------------------------------
 def unpack_erofs(img, work):
-    run([EXTRACT, "-i", img, "-x", "-s", "-f", "-o", work])
+    log("unpacking %s" % os.path.basename(img))
+    run([EXTRACT, "-i", img, "-x", "-s", "-f", "-o", work], quiet=True)
 
 
 # ---------------------------------------------------------------------------
@@ -423,12 +431,13 @@ def pack_partition(work, part, out_dir, ts):
     img = os.path.join(out_dir, part + ".img")
     fsc = os.path.join(work, "config", part + "_fs_config")
     fc = os.path.join(work, "config", part + "_file_contexts")
+    log("packing %s.img" % part)
     run([MKFS, "-zlz4hc,0", "-T", str(ts),
          "--mount-point=/" + part,
          "--product-out=" + work,
          "--fs-config-file=" + fsc,
          "--file-contexts=" + fc,
-         img, os.path.join(work, part)])
+         img, os.path.join(work, part)], quiet=True)
     return img
 
 
@@ -505,11 +514,14 @@ def main(argv):
         elif os.path.exists(os.path.join(hos4_src, "vendor.img")):
             xi_vendor_img = os.path.join(hos4_src, "vendor.img")
         if xi_vendor_img and os.path.exists(xi_vendor_img):
-            run([EXTRACT, "-i", xi_vendor_img, "-X", "/vendor/build.prop",
-                 "-s", "-f", "-o", tmp_v])
-            cand = os.path.join(tmp_v, "vendor", "build.prop")
-            if os.path.exists(cand):
-                shutil.copy2(cand, xv_bp)
+            tmp_vx = os.path.join(dl, "_xivx")
+            # partition root is '/', so build.prop is at /build.prop
+            run([EXTRACT, "-i", xi_vendor_img, "-X", "/build.prop",
+                 "-s", "-f", "-o", tmp_vx], quiet=True)
+            for root, _d, files in os.walk(tmp_vx):
+                if "build.prop" in files:
+                    shutil.copy2(os.path.join(root, "build.prop"), xv_bp)
+                    break
     except Exception as e:  # noqa: BLE001  (tail merge is best-effort)
         log("    (could not capture Xiaomi vendor build.prop: %s)" % e)
 

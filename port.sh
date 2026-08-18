@@ -29,6 +29,15 @@ PACK_PARTS=(system system_ext product vendor odm)
 log() { printf '%s\n' "$*"; }
 die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 run() { log "+ $*"; "$@"; }
+# run a noisy tool quietly: swallow its output, but dump it if it fails
+quiet_run() {
+    local lf; lf="$(mktemp)"
+    if "$@" >"$lf" 2>&1; then
+        rm -f "$lf"
+    else
+        local rc=$?; cat "$lf"; rm -f "$lf"; return $rc
+    fi
+}
 
 # ---- args -----------------------------------------------------------------
 STOCK=""; HOS4=""; WORK="work"; OUT="out"; RES="$HERE/RES"
@@ -112,11 +121,11 @@ dump_payload() {   # payload outdir parts...
     command -v payload-dumper-go >/dev/null && tool="payload-dumper-go"
     [ -x "$EROFS_BIN/payload-dumper-go" ] && tool="$EROFS_BIN/payload-dumper-go"
     if [ -n "$tool" ]; then
-        log "using $tool"
-        run "$tool" -p "$parts" -o "$outdir" "$payload"
+        log "extracting payload ($parts) with $(basename "$tool")"
+        quiet_run "$tool" -p "$parts" -o "$outdir" "$payload"
     else
-        log "payload-dumper-go not found; using built-in extractor"
-        run "$PY" "$HERE/lib/payload_extractor.py" -o "$outdir" -p "$parts" "$payload"
+        log "extracting payload ($parts) with built-in extractor"
+        quiet_run "$PY" "$HERE/lib/payload_extractor.py" -o "$outdir" -p "$parts" "$payload"
     fi
 }
 
@@ -134,7 +143,7 @@ get_images() {   # resolved outdir label parts... ; sets IMG_<part> vars
     fi
 }
 
-unpack_erofs() { run "$EXTRACT" -i "$1" -x -s -f -o "$2"; }
+unpack_erofs() { log "unpacking $(basename "$1")"; quiet_run "$EXTRACT" -i "$1" -x -s -f -o "$2"; }
 
 # ---- build.prop helpers ---------------------------------------------------
 prop_append() {   # file header line...
@@ -193,15 +202,18 @@ MIEXT="$WORK/mi_ext"
 
 # capture Xiaomi vendor build.prop tail for step 6 (vendor itself stays OnePlus)
 XV_BP="$WORK/_xiaomi_vendor_build.prop"
-if [ ! -d "$HOS4_SRC" ]; then
+XI_VIMG=""
+if [ -d "$HOS4_SRC" ]; then
+    [ -f "$HOS4_SRC/vendor.img" ] && XI_VIMG="$HOS4_SRC/vendor.img"
+else
     dump_payload "$HOS4_SRC" "$DL/_xiv" vendor 2>/dev/null || true
-    if [ -f "$DL/_xiv/vendor.img" ]; then
-        run "$EXTRACT" -i "$DL/_xiv/vendor.img" -X /vendor/build.prop -s -f -o "$DL/_xiv" || true
-        [ -f "$DL/_xiv/vendor/build.prop" ] && cp "$DL/_xiv/vendor/build.prop" "$XV_BP" || true
-    fi
-elif [ -f "$HOS4_SRC/vendor.img" ]; then
-    run "$EXTRACT" -i "$HOS4_SRC/vendor.img" -X /vendor/build.prop -s -f -o "$DL/_xiv" || true
-    [ -f "$DL/_xiv/vendor/build.prop" ] && cp "$DL/_xiv/vendor/build.prop" "$XV_BP" || true
+    [ -f "$DL/_xiv/vendor.img" ] && XI_VIMG="$DL/_xiv/vendor.img"
+fi
+if [ -n "$XI_VIMG" ]; then
+    # partition root is '/', so build.prop is at /build.prop (not /vendor/...)
+    quiet_run "$EXTRACT" -i "$XI_VIMG" -X /build.prop -s -f -o "$DL/_xivx" || true
+    FOUND="$(find "$DL/_xivx" -name build.prop -type f 2>/dev/null | head -1)"
+    [ -n "$FOUND" ] && cp "$FOUND" "$XV_BP" || true
 fi
 
 # ---- 12-step assembly -----------------------------------------------------
@@ -320,12 +332,14 @@ TS="$(date +%s)"
 IMGS=()
 for part in "${PACK_PARTS[@]}"; do
     img="$OUT/$part.img"
-    run "$MKFS" -zlz4hc,0 -T "$TS" \
+    log "packing $part.img"
+    quiet_run "$MKFS" -zlz4hc,0 -T "$TS" \
         "--mount-point=/$part" \
         "--product-out=$WORK" \
         "--fs-config-file=$WORK/config/${part}_fs_config" \
         "--file-contexts=$WORK/config/${part}_file_contexts" \
         "$img" "$WORK/$part"
+    log "  -> $(du -h "$img" | cut -f1)"
     IMGS+=("$img")
 done
 
