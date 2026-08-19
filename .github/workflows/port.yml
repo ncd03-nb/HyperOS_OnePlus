@@ -58,23 +58,32 @@ jobs:
           sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /opt/hostedtoolcache/CodeQL || true
           df -h
 
-      - name: Patch RES overlay for dangling symlinks
+      - name: Auto-probe stock ROM
+        id: stock_probe
+        env:
+          STOCK_INPUT: ${{ inputs.stock_url }}
         run: |
-          python3 - <<'PY'
-          from pathlib import Path
+          chmod +x scripts/actions_probe_stock.sh
+          if ! scripts/actions_probe_stock.sh "$STOCK_INPUT" "$GITHUB_WORKSPACE/.auto_probe"; then
+            echo "::warning::Automatic stock-ROM probe failed; continuing with normal profile detection."
+            echo "stock_path=$STOCK_INPUT" >> "$GITHUB_OUTPUT"
+            echo "probe_conf=" >> "$GITHUB_OUTPUT"
+            echo "probe_json=" >> "$GITHUB_OUTPUT"
+            echo "probe_report=" >> "$GITHUB_OUTPUT"
+          fi
 
-          path = Path("port.sh")
-          text = path.read_text()
-          old = '        cp -a "$part". "$WORK/$pname/"'
-          new = '        cp -a --remove-destination "$part". "$WORK/$pname/"'
-          if old not in text:
-              raise SystemExit("RES overlay cp line not found in port.sh")
-          path.write_text(text.replace(old, new, 1))
-          PY
+      - name: Prepare porter for Actions auto-profile
+        run: |
+          python3 scripts/patch_port_for_actions.py port.sh
 
       - name: Build port
+        env:
+          AUTO_PROFILE_CONF: ${{ steps.stock_probe.outputs.probe_conf }}
+          STOCK_PROBED_PATH: ${{ steps.stock_probe.outputs.stock_path }}
         run: |
-          ARGS=(--stock "${{ inputs.stock_url }}" --hyperos "${{ inputs.hyperos_url }}")
+          STOCK_INPUT="$STOCK_PROBED_PATH"
+          [ -n "$STOCK_INPUT" ] || STOCK_INPUT="${{ inputs.stock_url }}"
+          ARGS=(--stock "$STOCK_INPUT" --hyperos "${{ inputs.hyperos_url }}")
           if [ -n "${{ inputs.device }}" ]; then
             [[ "${{ inputs.device }}" =~ ^[A-Za-z0-9_-]+$ ]] || { echo "Invalid device profile"; exit 1; }
             [ "${{ inputs.device }}" != "_template" ] || { echo "The template is not buildable"; exit 1; }
@@ -83,6 +92,29 @@ jobs:
           fi
           [ -n "${{ inputs.name }}" ] && ARGS+=(--name "${{ inputs.name }}")
           ./port.sh "${ARGS[@]}"
+
+      - name: Add stock probe to summary
+        if: always()
+        env:
+          PROBE_REPORT: ${{ steps.stock_probe.outputs.probe_report }}
+        run: |
+          if [ -n "$PROBE_REPORT" ] && [ -f "$PROBE_REPORT" ]; then
+            {
+              echo "## Stock ROM auto-probe"
+              echo '```text'
+              cat "$PROBE_REPORT"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload stock probe diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Stock-ROM-probe
+          path: .auto_probe/report/*
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
