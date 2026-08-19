@@ -50,6 +50,81 @@ if marker not in text:
 '''
     text = text.replace(needle, hook, 1)
 
+# A device may keep the MiuiCamera that belongs to the selected donor instead
+# of forcing the generic Google-Drive replacement.  This is useful when the
+# replacement APK expects a different camera-vendor metadata layout (Ace 3V
+# currently crashes CameraSetup with "invalid buffer length 68").
+camera_marker = "# ACTIONS_DEVICE_CAMERA_SOURCE\n"
+if camera_marker not in text:
+    old_camera = r'''log "[12] removing product/priv-app/MiuiCamera (replaced from RES)"
+rm -rf "$PRODUCT/priv-app/MiuiCamera"
+
+# fetch MiuiCamera into RES if missing (too big for git)
+CAM="$RES/product/priv-app/MiuiCamera/MiuiCamera.apk"
+if [ ! -f "$CAM" ]; then
+    log "[RES] MiuiCamera not present; downloading from Google Drive"
+    mkdir -p "$RES/product/priv-app"
+    run "$PY" "$HERE/lib/gdrive.py" "${DEV_camera_gdrive_id:-$DEFAULT_CAMERA_GDRIVE_ID}" "$RES/_MiuiCamera.zip"
+    run unzip -o -q "$RES/_MiuiCamera.zip" -d "$RES/product/priv-app/"
+    rm -f "$RES/_MiuiCamera.zip"
+    [ -f "$CAM" ] || die "camera zip did not contain MiuiCamera/MiuiCamera.apk"
+fi
+'''
+    new_camera = r'''# ACTIONS_DEVICE_CAMERA_SOURCE
+CAMERA_SOURCE="${DEV_camera_source:-gdrive}"
+case "$CAMERA_SOURCE" in
+    donor)
+        log "[12] keeping HyperOS donor MiuiCamera for $DEVICE"
+        ;;
+    gdrive|"")
+        log "[12] removing product/priv-app/MiuiCamera (replaced from RES)"
+        rm -rf "$PRODUCT/priv-app/MiuiCamera"
+
+        # fetch MiuiCamera into RES if missing (too big for git)
+        CAM="$RES/product/priv-app/MiuiCamera/MiuiCamera.apk"
+        if [ ! -f "$CAM" ]; then
+            log "[RES] MiuiCamera not present; downloading from Google Drive"
+            mkdir -p "$RES/product/priv-app"
+            run "$PY" "$HERE/lib/gdrive.py" "${DEV_camera_gdrive_id:-$DEFAULT_CAMERA_GDRIVE_ID}" "$RES/_MiuiCamera.zip"
+            run unzip -o -q "$RES/_MiuiCamera.zip" -d "$RES/product/priv-app/"
+            rm -f "$RES/_MiuiCamera.zip"
+            [ -f "$CAM" ] || die "camera zip did not contain MiuiCamera/MiuiCamera.apk"
+        fi
+        ;;
+    *)
+        die "unsupported camera_source '$CAMERA_SOURCE' (expected donor or gdrive)"
+        ;;
+esac
+'''
+    if old_camera not in text:
+        raise SystemExit("could not locate MiuiCamera replacement block")
+    text = text.replace(old_camera, new_camera, 1)
+
+# Device-specific FeatureParser overrides.  Keep the large donor-derived XML
+# readable in git while allowing verified scalar values to live in device.conf.
+# In particular, Ace 3V originally used fod_solution=2 based on an unverified
+# assumption.  Current Xiaomi optical-FOD profiles (e.g. houji) use solution 3.
+feature_marker = "# ACTIONS_DEVICE_FEATURE_OVERRIDES\n"
+if feature_marker not in text:
+    anchor = 'prop_set "$VENDOR/build.prop" "persist.vendor.sys.fp.fod.location.X_Y" "${DEV_fod_location:-}"\n'
+    if anchor not in text:
+        raise SystemExit("could not locate FOD scalar override anchor")
+    block = r'''# ACTIONS_DEVICE_FEATURE_OVERRIDES
+if [ -n "${DEV_fod_solution:-}" ] && [ -n "$DEVNAME" ]; then
+    FEATURE_FILE="$WORK/product/etc/device_features/$DEVNAME.xml"
+    if [ -f "$FEATURE_FILE" ]; then
+        if grep -q '<integer name="fod_solution">' "$FEATURE_FILE"; then
+            sed -i -E "s#<integer name=\"fod_solution\">[^<]*</integer>#<integer name=\"fod_solution\">${DEV_fod_solution}</integer>#" "$FEATURE_FILE"
+            log "    device_features: fod_solution=${DEV_fod_solution}"
+        else
+            sed -i "s#</features>#    <integer name=\"fod_solution\">${DEV_fod_solution}</integer>\n</features>#" "$FEATURE_FILE"
+            log "    device_features: added fod_solution=${DEV_fod_solution}"
+        fi
+    fi
+fi
+'''
+    text = text.replace(anchor, block + anchor, 1)
+
 # Optional Actions-only debug mode.  This is intentionally injected after all
 # device scalar overrides and before SELinux/fs-config synthesis so the new rc
 # file receives normal system_file metadata when the images are repacked.
