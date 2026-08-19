@@ -139,6 +139,7 @@ jobs:
         env:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           GOOGLE_OAUTH_CREDENTIALS_JSON: ${{ secrets.GOOGLE_OAUTH_CREDENTIALS_JSON }}
+          GOOGLE_OAUTH_REFRESH_TOKEN: ${{ secrets.GOOGLE_OAUTH_REFRESH_TOKEN }}
           GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
         run: |
           if [ -z "$GDRIVE_FOLDER_ID" ]; then
@@ -150,8 +151,16 @@ jobs:
             exit 0
           fi
           python3 -m pip install --disable-pip-version-check --quiet google-api-python-client google-auth
-          if ! python3 scripts/upload_gdrive.py "$(ls out/*.zip | head -n1)"; then
+          ZIP="$(ls out/*.zip | head -n1)"
+          set +e
+          GDRIVE_URL="$(python3 scripts/upload_gdrive.py "$ZIP")"
+          RC=$?
+          set -e
+          if [ "$RC" -ne 0 ]; then
             echo "::warning::Google Drive upload failed; the GitHub artifact is still available."
+          else
+            echo "Google Drive upload complete: $GDRIVE_URL"
+            echo "### Google Drive: $GDRIVE_URL" >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Upload to pixeldrain
