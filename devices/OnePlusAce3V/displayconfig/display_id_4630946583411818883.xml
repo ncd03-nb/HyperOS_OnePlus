@@ -13,9 +13,17 @@
       P_7 extended level 4856 ~= 1115.050 nits
       HBM lux table mode: 30, first enter threshold: 10000 lux
 
-    The brightness points below are sampled directly from P_7 and normalized
-    against its extended maximum level 4856. HBM transition 0.85 is aligned
-    with the stock normal/HBM boundary near level 4095/4856.
+    The P_7 brightness points are normalized against its extended maximum
+    level 4856.  HyperOS on this donor reports a framework backlight minimum
+    slightly below P_7 level 2 (3.66256e-4 vs 4.11862e-4).  Android's
+    DisplayDeviceConfig requires the map to cover the complete framework
+    backlight range, otherwise system_server aborts in
+    constrainNitsAndBacklightArrays() and loops on bootanimation.  The 0/0
+    compatibility anchor below lets Android clamp/interpolate to the real
+    minimum while leaving every measured P_7 point unchanged.
+
+    HBM transition 0.85 is aligned with the stock normal/HBM boundary near
+    level 4095/4856.
 -->
 <displayConfiguration>
     <densityMapping>
@@ -27,6 +35,10 @@
     </densityMapping>
 
     <screenBrightnessMap>
+        <point>
+            <value>0.000000000</value>
+            <nits>0.000</nits>
+        </point>
         <point>
             <value>0.000411862</value>
             <nits>2.000</nits>
