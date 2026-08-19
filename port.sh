@@ -66,6 +66,51 @@ OUT="$(mkdir -p "$OUT" && cd "$OUT" && pwd)"
 DL="$WORK/_inputs"; mkdir -p "$DL"
 
 # input resolution
+decrypt_oplus_link() { # OPlus Android 16 downloadCheck URL -> signed CDN URL
+    local url="$1" result attempt
+    [[ "$url" == *"downloadCheck"* ]] || { printf '%s\n' "$url"; return 0; }
+    for attempt in 1 2 3 4 5; do
+        result="$(DECRYPT_URL="$url" "$PY" - <<'PY'
+import os
+import sys
+import urllib.error
+import urllib.request
+
+url = os.environ.get("DECRYPT_URL", "")
+headers = {
+    "User-Agent": "okhttp/3.12.12",
+    "Accept": "*/*",
+    "Accept-Encoding": "identity",
+    "Connection": "Keep-Alive",
+    "Cache-Control": "no-cache",
+    "userId": "oplus-ota|16002018",
+}
+
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, request, fp, code, msg, headers, new_url):
+        return None
+
+try:
+    request = urllib.request.Request(url, headers=headers)
+    opener = urllib.request.build_opener(NoRedirect)
+    try:
+        opener.open(request, timeout=20)
+    except urllib.error.HTTPError as error:
+        location = error.headers.get("location", "").strip()
+        if error.code in (301, 302, 303, 307, 308) and location.startswith("http"):
+            print(location)
+            sys.exit(0)
+except Exception:
+    pass
+sys.exit(1)
+PY
+)" && [ -n "$result" ] && { printf '%s\n' "$result"; return 0; }
+        log "OPlus link decryption attempt $attempt/5 failed; retrying" >&2
+        sleep 2
+    done
+    die "could not decrypt OPlus downloadCheck link"
+}
+
 download() {   # url dstdir label -> echoes path
     local url="$1" dst="$2" label="$3" out
     out="$dst/${label}_download"
@@ -104,7 +149,16 @@ unzip_find_payload() {   # zip dstdir label -> echoes path (payload.bin or dir)
 resolve_input() {   # src dstdir label -> echoes local path (zip/bin/dir, as-is)
     local src="$1" dst="$2" label="$3"
     mkdir -p "$dst"
-    case "$src" in http://*|https://*) download "$src" "$dst" "$label";; *) printf '%s\n' "$src";; esac
+    case "$src" in
+        http://*|https://*)
+            if [[ "$src" == *"downloadCheck"* ]]; then
+                log "detected OPlus protected OTA link; resolving CDN URL" >&2
+                src="$(decrypt_oplus_link "$src")"
+            fi
+            download "$src" "$dst" "$label"
+            ;;
+        *) printf '%s\n' "$src";;
+    esac
 }
 
 find_dumper() {   # echoes payload-dumper-rust binary if available

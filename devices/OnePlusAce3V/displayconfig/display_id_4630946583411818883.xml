@@ -1,0 +1,138 @@
+<?xml version='1.0' encoding='utf-8' standalone='yes' ?>
+<!--
+    DisplayDeviceConfig for OnePlus Ace 3V (PJF110 / OP5CFBL1).
+
+    Measured/stock data used here:
+      Physical display id: 4630946583411818883 (port 131)
+      Resolution: 1240x2772
+      Logical density: 560
+      Refresh modes: 60/90/120 Hz
+      Ambient sensor: OPLUS Fusion Light Sensor (android.sensor.light)
+      Brightness source: display_brightness_config_P_7.xml
+      P_7 normal level 4095 ~= 508.468 nits
+      P_7 extended level 4856 ~= 1115.050 nits
+      HBM lux table mode: 30, first enter threshold: 10000 lux
+
+    The brightness points below are sampled directly from P_7 and normalized
+    against its extended maximum level 4856. HBM transition 0.85 is aligned
+    with the stock normal/HBM boundary near level 4095/4856.
+-->
+<displayConfiguration>
+    <densityMapping>
+        <density>
+            <height>2772</height>
+            <width>1240</width>
+            <density>560</density>
+        </density>
+    </densityMapping>
+
+    <screenBrightnessMap>
+        <point>
+            <value>0.000411862</value>
+            <nits>2.000</nits>
+        </point>
+        <point>
+            <value>0.003294893</value>
+            <nits>2.070</nits>
+        </point>
+        <point>
+            <value>0.006589786</value>
+            <nits>2.151</nits>
+        </point>
+        <point>
+            <value>0.013179572</value>
+            <nits>2.311</nits>
+        </point>
+        <point>
+            <value>0.026359143</value>
+            <nits>2.633</nits>
+        </point>
+        <point>
+            <value>0.052718287</value>
+            <nits>3.158</nits>
+        </point>
+        <point>
+            <value>0.105436573</value>
+            <nits>6.236</nits>
+        </point>
+        <point>
+            <value>0.158154860</value>
+            <nits>12.895</nits>
+        </point>
+        <point>
+            <value>0.210873147</value>
+            <nits>23.667</nits>
+        </point>
+        <point>
+            <value>0.316309720</value>
+            <nits>58.469</nits>
+        </point>
+        <point>
+            <value>0.421746293</value>
+            <nits>110.934</nits>
+        </point>
+        <point>
+            <value>0.527182867</value>
+            <nits>181.106</nits>
+        </point>
+        <point>
+            <value>0.632619440</value>
+            <nits>270.136</nits>
+        </point>
+        <point>
+            <value>0.738056013</value>
+            <nits>379.336</nits>
+        </point>
+        <point>
+            <value>0.843286656</value>
+            <nits>508.468</nits>
+        </point>
+        <point>
+            <value>0.850082372</value>
+            <nits>520.308</nits>
+        </point>
+        <point>
+            <value>0.885502471</value>
+            <nits>582.645</nits>
+        </point>
+        <point>
+            <value>0.926688633</value>
+            <nits>730.412</nits>
+        </point>
+        <point>
+            <value>0.967874794</value>
+            <nits>941.417</nits>
+        </point>
+        <point>
+            <value>1.000000000</value>
+            <nits>1115.050</nits>
+        </point>
+    </screenBrightnessMap>
+
+    <refreshRate>
+        <defaultRefreshRate>120</defaultRefreshRate>
+        <defaultPeakRefreshRate>120</defaultPeakRefreshRate>
+    </refreshRate>
+
+    <ambientLightSensor>
+        <type>android.sensor.light</type>
+        <name>OPLUS Fusion Light Sensor</name>
+        <refreshRateRange>
+            <minimum>0</minimum>
+            <maximum>120</maximum>
+        </refreshRateRange>
+    </ambientLightSensor>
+
+    <highBrightnessMode enabled="true">
+        <transitionPoint>0.85</transitionPoint>
+        <minimumLux>10000</minimumLux>
+        <timing>
+            <timeWindowSecs>1800</timeWindowSecs>
+            <timeMaxSecs>300</timeMaxSecs>
+            <timeMinSecs>0</timeMinSecs>
+        </timing>
+    </highBrightnessMode>
+
+    <ambientLightHorizonLong>3000</ambientLightHorizonLong>
+    <ambientLightHorizonShort>1000</ambientLightHorizonShort>
+</displayConfiguration>

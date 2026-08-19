@@ -53,6 +53,10 @@ optional manual override (for example, `OnePlus13`).
 `payload.bin`, or a directory of raw `.img` files. The finished zip lands in
 `out/`.
 
+OPlus Android 16 links containing `downloadCheck` are resolved automatically
+to their signed CDN URL before downloading, with the same retry behaviour as
+the NothingsVN toolbuild flow.
+
 Options:
 
 ```text
