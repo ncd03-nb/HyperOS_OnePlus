@@ -125,6 +125,28 @@ fi
 '''
     text = text.replace(anchor, block + anchor, 1)
 
+# fixes/vendor.build.prop originated with the LTPO OnePlus 13 profile.  Do not
+# leave its 10/30Hz LTPO policy enabled on a fixed-mode panel such as Ace 3V;
+# that causes the FOD session to bounce between 60 and 120 Hz while the finger
+# is down. Device profiles can opt out with ltpo=false.
+panel_marker = "# ACTIONS_DEVICE_PANEL_POLICY\n"
+if panel_marker not in text:
+    anchor = 'prop_set "$PROD_BP" "persist.miui.density_v2" "${DEV_density:-}"\n'
+    if anchor not in text:
+        raise SystemExit("could not locate density scalar override anchor")
+    block = r'''# ACTIONS_DEVICE_PANEL_POLICY
+if [ "${DEV_ltpo:-}" = "false" ]; then
+    log "    panel policy: fixed-mode/non-LTPO (${DEV_refresh_rates:-120,90,60})"
+    prop_set "$VENDOR/build.prop" "ro.vendor.mi_sf.ltpo.support" "false"
+    prop_set "$VENDOR/build.prop" "ro.vendor.mi_sf.support_gradient_idleframerate" "false"
+    prop_set "$VENDOR/build.prop" "ro.vendor.mi_sf.aod_mode_ddic_refresh_rate" "60"
+    prop_set "$VENDOR/build.prop" "ro.vendor.display.primary_idle_refresh_rate" "60"
+    prop_set "$VENDOR/build.prop" "ro.vendor.display.idle_default_fps" "60"
+    prop_set "$VENDOR/build.prop" "ro.vendor.display.dynamic_refresh_rate" "${DEV_refresh_rates:-120,90,60}"
+fi
+'''
+    text = text.replace(anchor, block + anchor, 1)
+
 # Optional Actions-only debug mode.  This is intentionally injected after all
 # device scalar overrides and before SELinux/fs-config synthesis so the new rc
 # file receives normal system_file metadata when the images are repacked.
