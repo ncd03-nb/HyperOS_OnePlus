@@ -30,6 +30,11 @@ on:
         required: false
         default: ""
         type: string
+      force_adb:
+        description: "Force insecure ADB from early boot for bootloop diagnostics"
+        required: false
+        default: true
+        type: boolean
       upload_gdrive:
         description: "Upload completed ROM to Google Drive"
         required: false
@@ -72,9 +77,12 @@ jobs:
             echo "probe_report=" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Prepare porter for Actions auto-profile
+      - name: Prepare porter for Actions auto-profile/debug
+        env:
+          FORCE_ADB: ${{ inputs.force_adb }}
         run: |
           python3 scripts/patch_port_for_actions.py port.sh
+          echo "Force ADB: $FORCE_ADB"
 
       - name: Build port
         env:
@@ -106,6 +114,8 @@ jobs:
               echo '```'
             } >> "$GITHUB_STEP_SUMMARY"
           fi
+          echo "## Debug build" >> "$GITHUB_STEP_SUMMARY"
+          echo "Force ADB: ${{ inputs.force_adb }}" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload stock probe diagnostics
         if: always()
