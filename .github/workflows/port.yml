@@ -58,6 +58,20 @@ jobs:
           sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /opt/hostedtoolcache/CodeQL || true
           df -h
 
+      - name: Patch RES overlay for dangling symlinks
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("port.sh")
+          text = path.read_text()
+          old = '        cp -a "$part". "$WORK/$pname/"'
+          new = '        cp -a --remove-destination "$part". "$WORK/$pname/"'
+          if old not in text:
+              raise SystemExit("RES overlay cp line not found in port.sh")
+          path.write_text(text.replace(old, new, 1))
+          PY
+
       - name: Build port
         run: |
           ARGS=(--stock "${{ inputs.stock_url }}" --hyperos "${{ inputs.hyperos_url }}")
