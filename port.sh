@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # HyperOS (2-4) -> OnePlus auto-porter (multi-device; see devices/).
-#   ./port.sh --device <OnePlus13|OnePlus15> --stock <stock-rom> --hyperos <hyperos-rom>
+#   ./port.sh --stock <stock-rom> --hyperos <hyperos-rom> [--device <profile>]
 # Inputs: URL, zip, payload.bin or an unpacked directory.
 
 set -euo pipefail
@@ -11,6 +11,9 @@ EXTRACT="$EROFS_BIN/extract.erofs"
 FIXES="$HERE/fixes"
 PY="${PYTHON:-python3}"
 SIG="palaziks"
+# Used only for automatic profiles when the stock ROM provides no compatible
+# MiuiCamera package. It is the same generic package used by existing profiles.
+DEFAULT_CAMERA_GDRIVE_ID="125kqJ-vq_7pM85MRbny6lFazYHMUn0Yh"
 
 PACK_PARTS=(system system_ext product vendor odm)
 
@@ -44,21 +47,17 @@ while [ $# -gt 0 ]; do
         *) die "unknown arg: $1";;
     esac
 done
-[ -n "$DEVICE" ] || die "--device is required (a name under devices/, e.g. OnePlus13 or OnePlus15)"
-[ -f "$HERE/devices/$DEVICE/device.conf" ] || die "unknown device: $DEVICE (see devices/)"
+# --device is optional. If absent, we extract the OnePlus vendor/odm images
+# first and select a matching profile from their read-only build properties.
+if [ -n "$DEVICE" ]; then
+    [ "$DEVICE" != "_template" ] || die "_template is documentation, not a buildable device"
+    case "$DEVICE" in
+        *[!A-Za-z0-9_-]*) die "invalid device profile name: $DEVICE" ;;
+    esac
+    [ -f "$HERE/devices/$DEVICE/device.conf" ] || die "unknown device: $DEVICE (see devices/)"
+fi
 [ -n "$STOCK" ] || die "--stock is required (OnePlus stock ROM)"
 [ -n "$HOS4" ] || die "--hyperos is required (HyperOS 2-4 ROM)"
-[ -n "$NAME" ] || NAME="HyperOS-$DEVICE-port"
-
-# load devices/<DEVICE>/device.conf (key=value) into DEV_<key> vars
-while IFS= read -r line; do
-    case "$line" in ""|\#*) continue;; esac
-    case "$line" in *=*) : ;; *) continue;; esac
-    k="${line%%=*}"; v="${line#*=}"
-    k="$(printf '%s' "$k" | tr -d '[:space:]')"
-    v="$(printf '%s' "$v" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
-    [ -n "$k" ] && eval "DEV_${k}=\$v"
-done < "$HERE/devices/$DEVICE/device.conf"
 [ -x "$MKFS" ] || die "missing $MKFS"
 [ -x "$EXTRACT" ] || die "missing $EXTRACT"
 
@@ -148,6 +147,128 @@ get_images() {   # resolved outdir label parts... ; sets IMG_<part> vars
 
 unpack_erofs() { log "unpacking $(basename "$1")"; quiet_run "$EXTRACT" -i "$1" -x -s -f -o "$2"; }
 
+config_value() { # config-file key
+    sed -n "s/^[[:space:]]*$2[[:space:]]*=[[:space:]]*//p" "$1" | head -n1 | sed 's/[[:space:]]*$//'
+}
+
+load_device_config() {
+    local line k v
+    while IFS= read -r line; do
+        case "$line" in ""|\#*) continue;; esac
+        case "$line" in *=*) : ;; *) continue;; esac
+        k="${line%%=*}"; v="${line#*=}"
+        k="$(printf '%s' "$k" | tr -d '[:space:]')"
+        v="$(printf '%s' "$v" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+        [ -n "$k" ] && eval "DEV_${k}=\$v"
+    done < "$HERE/devices/$DEVICE/device.conf"
+}
+
+stock_property_values() { # property key; vendor/odm were already unpacked
+    local key="$1" root value
+    for root in "$WORK/odm" "$WORK/vendor"; do
+        [ -d "$root" ] || continue
+        value="$(grep -rhs -m1 "^${key}=" "$root" --include='*.prop' 2>/dev/null | head -n1 | cut -d= -f2- | tr -d '\r')"
+        [ -n "$value" ] && printf '%s\n' "$value"
+    done
+}
+
+profile_matches_values() { # config file, candidate values...
+    local config="$1" key list candidate entry
+    shift
+    for key in match_models match_devices model; do
+        list="$(config_value "$config" "$key")"
+        [ -n "$list" ] || continue
+        local entries=()
+        IFS=',' read -r -a entries <<< "$list"
+        for entry in "${entries[@]}"; do
+            entry="$(printf '%s' "$entry" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+            for candidate in "$@"; do
+                [ -n "$candidate" ] && [ "$entry" = "$candidate" ] && return 0
+            done
+        done
+    done
+    return 1
+}
+
+first_stock_property() { # property keys in priority order
+    local key value
+    for key in "$@"; do
+        value="$(stock_property_values "$key" | head -n1)"
+        [ -n "$value" ] && { printf '%s\n' "$value"; return 0; }
+    done
+    return 1
+}
+
+safe_profile_component() {
+    printf '%s' "$1" | tr -cd 'A-Za-z0-9_-' | cut -c1-48
+}
+
+configure_automatic_profile() {
+    # Build a best-effort profile from the actual OnePlus vendor/odm props.
+    # Defaults only keep the pipeline moving; the output is intentionally
+    # labelled Automatic so it is never confused with a tested device profile.
+    local model codename width height size location target density resolution market
+    model="$(first_stock_property ro.product.odm.model ro.product.vendor.model ro.product.model || true)"
+    codename="$(first_stock_property ro.product.odm.device ro.product.vendor.device ro.product.device ro.build.product || true)"
+    DEVICE="Auto-$(safe_profile_component "${codename:-$model}")"
+    [ "$DEVICE" != "Auto-" ] || DEVICE="Auto-OnePlus"
+    density="$(first_stock_property ro.sf.lcd_density persist.vendor.display.lcd_density persist.sys.miui_density || true)"
+    density="${density:-440}"
+    resolution="$(first_stock_property persist.sys.miui_resolution ro.vendor.display.miui_resolution || true)"
+    if [[ "$resolution" =~ ^([0-9]+),([0-9]+),([0-9]+)$ ]]; then
+        width="${BASH_REMATCH[1]}"; height="${BASH_REMATCH[2]}"
+    else
+        # Common OPlus QHD/FHD panel defaults only when the stock omitted a
+        # usable resolution property. They keep image generation possible.
+        width=1080; height=2400; resolution="$width,$height,480"
+    fi
+    location="$(first_stock_property persist.vendor.sys.fp.fod.location.X_Y || true)"
+    size="$(first_stock_property persist.vendor.sys.fp.fod.size.width_height || true)"
+    target="$(first_stock_property persist.vendor.sys.fp.fod.us.target || true)"
+    size="${size:-184,184}"
+    if [ -z "$location" ]; then
+        local fw fh fx fy
+        IFS=',' read -r fw fh <<< "$size"
+        fx=$(( width / 2 - fw / 2 )); fy=$(( height * 70 / 100 ))
+        location="$fx,$fy"
+    fi
+    if [ -z "$target" ]; then
+        local lx ly sw sh
+        IFS=',' read -r lx ly <<< "$location"; IFS=',' read -r sw sh <<< "$size"
+        target="$((lx - 12)),$((ly - 12)),$((lx + sw + 12)),$((ly + sh + 12))"
+    fi
+    market="$(first_stock_property ro.product.odm.marketname ro.vendor.oplus.market.name ro.product.marketname || true)"
+    DEV_name="${market:-${model:-OnePlus Automatic}}"
+    DEV_model="${model:-$DEVICE}"
+    DEV_density="$density"; DEV_miui_resolution="$resolution"
+    DEV_fod_location="$location"; DEV_fod_size="$size"; DEV_fod_target="$target"
+    DEV_marketname="${market:-$DEV_name}"
+    DEV_camera_gdrive_id="$DEFAULT_CAMERA_GDRIVE_ID"
+    AUTO_PROFILE=1
+}
+
+detect_device_profile() {
+    local candidates=() key value config profile
+    for key in ro.product.odm.model ro.product.vendor.model ro.product.model \
+        ro.product.odm.device ro.product.vendor.device ro.product.device ro.build.product; do
+        while IFS= read -r value; do
+            [ -n "$value" ] && candidates+=("$value")
+        done < <(stock_property_values "$key")
+    done
+    [ ${#candidates[@]} -gt 0 ] || return 1
+    for config in "$HERE"/devices/*/device.conf; do
+        [ -f "$config" ] || continue
+        profile="$(basename "$(dirname "$config")")"
+        [ "$profile" != "_template" ] || continue
+        if profile_matches_values "$config" "${candidates[@]}"; then
+            printf '%s\n' "$profile"
+            return 0
+        fi
+    done
+    printf 'stock identifiers: %s\n' "$(IFS=', '; echo "${candidates[*]}")" >&2
+    return 1
+}
+
 # build.prop helpers
 prop_append() {   # file header line...
     local file="$1" header="$2"; shift 2
@@ -203,9 +324,27 @@ log "== extracting payloads =="
 get_images "$STOCK_SRC" "$DL/stock_img" stock vendor odm
 get_images "$HOS4_SRC" "$DL/hyperos_img" hyperos system system_ext product mi_ext
 
-log "== unpacking images =="
+log "== unpacking stock identity =="
 unpack_erofs "$IMG_vendor" "$WORK"
 unpack_erofs "$IMG_odm" "$WORK"
+if [ -z "$DEVICE" ]; then
+    log "== detecting OnePlus device profile =="
+    DEVICE="$(detect_device_profile 2>/dev/null || true)"
+    if [ -n "$DEVICE" ]; then
+        load_device_config
+        log "== target profile: ${DEV_name:-$DEVICE} ($DEVICE) =="
+    else
+        log "== no verified profile matched; generating an automatic profile =="
+        configure_automatic_profile
+        log "== target profile: ${DEV_name:-$DEVICE} ($DEVICE; automatic) =="
+    fi
+else
+    load_device_config
+    log "== target profile: ${DEV_name:-$DEVICE} ($DEVICE; manual override) =="
+fi
+[ -n "$NAME" ] || NAME="HyperOS-$DEVICE-port"
+
+log "== unpacking remaining images =="
 unpack_erofs "$IMG_system" "$WORK"
 unpack_erofs "$IMG_system_ext" "$WORK"
 unpack_erofs "$IMG_product" "$WORK"
@@ -267,7 +406,7 @@ CAM="$RES/product/priv-app/MiuiCamera/MiuiCamera.apk"
 if [ ! -f "$CAM" ]; then
     log "[RES] MiuiCamera not present; downloading from Google Drive"
     mkdir -p "$RES/product/priv-app"
-    run "$PY" "$HERE/lib/gdrive.py" "${DEV_camera_gdrive_id:-}" "$RES/_MiuiCamera.zip"
+    run "$PY" "$HERE/lib/gdrive.py" "${DEV_camera_gdrive_id:-$DEFAULT_CAMERA_GDRIVE_ID}" "$RES/_MiuiCamera.zip"
     run unzip -o -q "$RES/_MiuiCamera.zip" -d "$RES/product/priv-app/"
     rm -f "$RES/_MiuiCamera.zip"
     [ -f "$CAM" ] || die "camera zip did not contain MiuiCamera/MiuiCamera.apk"
@@ -297,16 +436,30 @@ fi
 
 # device folder: displayconfig + device_features overlay, then scalar overrides
 DDIR="$HERE/devices/$DEVICE"
+[ "${AUTO_PROFILE:-0}" -eq 1 ] && DDIR=""
 log "[DEVICE] ${DEV_name:-$DEVICE} ($DEVICE)"
 if [ -d "$DDIR/displayconfig" ]; then
     mkdir -p "$WORK/product/etc/displayconfig"
     cp -a "$DDIR/displayconfig/." "$WORK/product/etc/displayconfig/"
+elif [ "${AUTO_PROFILE:-0}" -eq 1 ] && [ -d "$VENDOR/etc/displayconfig" ]; then
+    # Prefer the stock panel definition over a generic one when it is present.
+    mkdir -p "$WORK/product/etc/displayconfig"
+    cp -a "$VENDOR/etc/displayconfig/." "$WORK/product/etc/displayconfig/"
 fi
 DEVNAME="$(grep -m1 -E '^ro\.product\.(vendor\.)?device=' "$VENDOR/build.prop" 2>/dev/null | cut -d= -f2 | tr -d '[:space:]')"
 if [ -f "$DDIR/device_features.xml" ] && [ -n "$DEVNAME" ]; then
     mkdir -p "$WORK/product/etc/device_features"
     cp "$DDIR/device_features.xml" "$WORK/product/etc/device_features/$DEVNAME.xml"
     log "    device_features -> $DEVNAME.xml"
+elif [ "${AUTO_PROFILE:-0}" -eq 1 ] && [ -n "$DEVNAME" ] && [ ! -f "$WORK/product/etc/device_features/$DEVNAME.xml" ]; then
+    # HyperOS feature files are donor-side resources. Reuse one from the
+    # selected donor and rename it for the OnePlus codename rather than aborting
+    # an otherwise complete automatic build.
+    FEATURE_TEMPLATE="$(find "$WORK/product/etc/device_features" -maxdepth 1 -type f -name '*.xml' 2>/dev/null | head -n1 || true)"
+    if [ -n "$FEATURE_TEMPLATE" ]; then
+        cp "$FEATURE_TEMPLATE" "$WORK/product/etc/device_features/$DEVNAME.xml"
+        log "    device_features donor fallback -> $DEVNAME.xml"
+    fi
 fi
 prop_set "$VENDOR/build.prop" "persist.vendor.sys.fp.fod.location.X_Y" "${DEV_fod_location:-}"
 prop_set "$VENDOR/build.prop" "persist.vendor.sys.fp.fod.size.width_height" "${DEV_fod_size:-}"

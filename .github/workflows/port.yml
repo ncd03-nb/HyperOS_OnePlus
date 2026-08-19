@@ -1,15 +1,17 @@
 name: Port HyperOS
 
+# The Telegram bot passes request_id so a build can be traced unambiguously in
+# Actions. Manual runs still receive a readable fallback name.
+run-name: ${{ inputs.request_id || 'HyperOS-auto-detect' }}
+
 on:
   workflow_dispatch:
     inputs:
       device:
-        description: "Target device"
-        required: true
-        type: choice
-        options:
-          - OnePlus13
-          - OnePlus15
+        description: "Optional profile override; leave blank to detect from stock ROM"
+        required: false
+        default: ""
+        type: string
       stock_url:
         description: "OnePlus stock ROM link for that device (full OTA/fastboot zip or payload.bin)"
         required: true
@@ -23,6 +25,16 @@ on:
         required: false
         default: ""
         type: string
+      request_id:
+        description: "Telegram build identifier (optional)"
+        required: false
+        default: ""
+        type: string
+      upload_gdrive:
+        description: "Upload completed ROM to Google Drive"
+        required: false
+        default: true
+        type: boolean
       upload_pixeldrain:
         description: "Upload the finished zip to pixeldrain (needs PIXELDRAIN_API_KEY)"
         required: false
@@ -48,17 +60,43 @@ jobs:
 
       - name: Build port
         run: |
-          ARGS=(--device "${{ inputs.device }}" --stock "${{ inputs.stock_url }}" --hyperos "${{ inputs.hyperos_url }}")
+          ARGS=(--stock "${{ inputs.stock_url }}" --hyperos "${{ inputs.hyperos_url }}")
+          if [ -n "${{ inputs.device }}" ]; then
+            [[ "${{ inputs.device }}" =~ ^[A-Za-z0-9_-]+$ ]] || { echo "Invalid device profile"; exit 1; }
+            [ "${{ inputs.device }}" != "_template" ] || { echo "The template is not buildable"; exit 1; }
+            [ -f "devices/${{ inputs.device }}/device.conf" ] || { echo "Unknown device profile"; exit 1; }
+            ARGS+=(--device "${{ inputs.device }}")
+          fi
           [ -n "${{ inputs.name }}" ] && ARGS+=(--name "${{ inputs.name }}")
           ./port.sh "${ARGS[@]}"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: HyperOS-${{ inputs.device }}-port
+          name: HyperOS-port
           path: out/*.zip
           if-no-files-found: error
           compression-level: 0
+
+      - name: Upload to Google Drive
+        if: ${{ inputs.upload_gdrive }}
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          GOOGLE_OAUTH_CREDENTIALS_JSON: ${{ secrets.GOOGLE_OAUTH_CREDENTIALS_JSON }}
+          GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
+        run: |
+          if [ -z "$GDRIVE_FOLDER_ID" ]; then
+            echo "::warning::GDRIVE_FOLDER_ID is not configured; skipping Google Drive upload."
+            exit 0
+          fi
+          if [ -z "$GOOGLE_SERVICE_ACCOUNT_JSON" ] && [ -z "$GOOGLE_OAUTH_CREDENTIALS_JSON" ]; then
+            echo "::warning::No Google Drive credentials are configured; skipping Google Drive upload."
+            exit 0
+          fi
+          python3 -m pip install --disable-pip-version-check --quiet google-api-python-client google-auth
+          if ! python3 scripts/upload_gdrive.py "$(ls out/*.zip | head -n1)"; then
+            echo "::warning::Google Drive upload failed; the GitHub artifact is still available."
+          fi
 
       - name: Upload to pixeldrain
         if: ${{ inputs.upload_pixeldrain }}

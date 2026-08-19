@@ -41,10 +41,14 @@ built-in Python payload extractor, so it still works offline.
 ## Local build
 
 ```bash
-./port.sh --device OnePlus13 --stock <oneplus-stock> --hyperos <hyperos-rom>
+./port.sh --stock <oneplus-stock> --hyperos <hyperos-rom>
 ```
 
-`--device` is required (a folder name under `devices/`, e.g. `OnePlus13` or `OnePlus15`).
+The target is detected from the OnePlus stock `vendor`/`odm` properties. A
+verified folder under `devices/` is preferred. If none matches, the porter
+creates an in-memory automatic profile from the stock model, codename, density,
+market name and FOD props, then continues the build. `--device` remains an
+optional manual override (for example, `OnePlus13`).
 `--stock` and `--hyperos` accept a URL, an OTA/fastboot/recovery zip, a
 `payload.bin`, or a directory of raw `.img` files. The finished zip lands in
 `out/`.
@@ -52,7 +56,7 @@ built-in Python payload extractor, so it still works offline.
 Options:
 
 ```text
---device <name>       target device (required): OnePlus13, OnePlus15
+--device <name>       optional target-profile override; normally auto-detected
 --name <basename>     output zip basename (default: HyperOS-<device>-port)
 --out <dir>           output directory (default: out)
 --work <dir>          working directory (default: work)
@@ -72,12 +76,15 @@ the Google Drive download (`lib/gdrive.py`).
    and variables → Actions** as `PIXELDRAIN_API_KEY`.
 3. Open the **Actions** tab, pick **Build HyperOS for OnePlus**, and **Run
    workflow**.
-4. Choose the **device**, then paste the OnePlus stock ROM link and the HyperOS
-   link.
+4. Enter a device profile name, then paste the OnePlus stock ROM link and the
+   HyperOS link. The profile must be a verified folder in `devices/`.
 
-The finished zip is attached to the run as an artifact. The **Upload to
-pixeldrain** toggle (on by default) also uploads it and prints a share link; if
-the secret is missing or the upload fails, the build still succeeds.
+The finished zip is attached to the run as an artifact. **Upload to Google
+Drive** is on by default: configure `GDRIVE_FOLDER_ID` and either
+`GOOGLE_SERVICE_ACCOUNT_JSON` or `GOOGLE_OAUTH_CREDENTIALS_JSON` as Actions
+secrets. A service-account Drive folder must be shared with that account. If an
+upload fails, the GitHub artifact remains available. Pixeldrain remains an
+optional alternative.
 
 ## Adding a device
 
@@ -89,6 +96,11 @@ devices/OnePlus13/
   device_features.xml                         # copied to <ro.product.device>.xml
   displayconfig/display_id_<panelid>.xml      # brightness / refresh / density map
 ```
+
+Start from `devices/_template/` to replace an automatic profile with a verified
+one. Automatic builds intentionally do not stop when properties are missing:
+they use conservative fallback display/FOD values and a donor feature file.
+They are experimental and should be tested with recovery or fastboot available.
 
 `device.conf`:
 
