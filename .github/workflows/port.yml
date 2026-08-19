@@ -126,11 +126,14 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+      # upload-artifact always produces a ZIP when downloaded. Upload the raw
+      # images instead of the already-zipped ROM so Actions does not create a
+      # ZIP-inside-ZIP. Google Drive/Pixeldrain still receive the normal ROM zip.
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: HyperOS-port
-          path: out/*.zip
+          path: out/*.img
           if-no-files-found: error
           compression-level: 0
 
