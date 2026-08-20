@@ -1,5 +1,6 @@
 work/
 out/
+build_info/
 __pycache__/
 *.pyc
 *.img

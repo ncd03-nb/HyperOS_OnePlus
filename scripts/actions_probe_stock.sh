@@ -24,7 +24,7 @@ decrypt_oplus_link() {
     local url="$1" result attempt
     [[ "$url" == *"downloadCheck"* ]] || { printf '%s\n' "$url"; return 0; }
     for attempt in 1 2 3 4 5; do
-        result="$(DECRYPT_URL="$url" "$PY" - <<'PY'
+        if result="$(DECRYPT_URL="$url" "$PY" - <<'PY'
 import os
 import sys
 import urllib.error
@@ -48,7 +48,7 @@ try:
     request = urllib.request.Request(url, headers=headers)
     opener = urllib.request.build_opener(NoRedirect)
     try:
-        opener.open(request, timeout=20)
+        opener.open(request, timeout=15)
     except urllib.error.HTTPError as error:
         location = error.headers.get("location", "").strip()
         if error.code in (301, 302, 303, 307, 308) and location.startswith("http"):
@@ -58,7 +58,10 @@ except Exception:
     pass
 sys.exit(1)
 PY
-)" && [ -n "$result" ] && { printf '%s\n' "$result"; return 0; }
+)"; then :; else result=""; fi
+        result="$(printf '%s' "$result" | tr -d '\r\n' | xargs)"
+        [ -n "$result" ] && { printf '%s\n' "$result"; return 0; }
+        log "OPlus link decryption failed; retrying ($attempt/5)" >&2
         sleep 2
     done
     return 1

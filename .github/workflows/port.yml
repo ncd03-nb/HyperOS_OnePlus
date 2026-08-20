@@ -30,6 +30,21 @@ on:
         required: false
         default: ""
         type: string
+      builder_name:
+        description: "Telegram display name"
+        required: false
+        default: ""
+        type: string
+      builder_id:
+        description: "Telegram user ID"
+        required: false
+        default: ""
+        type: string
+      telegram_message_id:
+        description: "Telegram progress message to edit"
+        required: false
+        default: ""
+        type: string
       force_adb:
         description: "Force insecure ADB from early boot for bootloop diagnostics"
         required: false
@@ -49,14 +64,29 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
+      TELEGRAM_BUILD_ID: ${{ inputs.request_id }}
+      TELEGRAM_MSG_ID: ${{ inputs.telegram_message_id }}
+      BUILDER_NAME: ${{ inputs.builder_name }}
+      BUILDER_ID: ${{ inputs.builder_id }}
+      BASE_ROM_URL: ${{ inputs.stock_url }}
+      PORT_ROM_URL: ${{ inputs.hyperos_url }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Send start notification
+        continue-on-error: true
+        run: python3 scripts/notify.py start
+
       - name: Install requirements
         run: |
+          python3 scripts/notify.py sync || true
           chmod +x requirements.sh port.sh
-          ./requirements.sh
+          ./requirements.sh 2>&1 | tee -a build_action.log
 
       - name: Free up disk space
         run: |
@@ -68,8 +98,9 @@ jobs:
         env:
           STOCK_INPUT: ${{ inputs.stock_url }}
         run: |
+          python3 scripts/notify.py download || true
           chmod +x scripts/actions_probe_stock.sh
-          if ! scripts/actions_probe_stock.sh "$STOCK_INPUT" "$GITHUB_WORKSPACE/.auto_probe"; then
+          if ! scripts/actions_probe_stock.sh "$STOCK_INPUT" "$GITHUB_WORKSPACE/.auto_probe" 2>&1 | tee -a build_action.log; then
             echo "::warning::Automatic stock-ROM probe failed; continuing with normal profile detection."
             echo "stock_path=$STOCK_INPUT" >> "$GITHUB_OUTPUT"
             echo "probe_conf=" >> "$GITHUB_OUTPUT"
@@ -89,6 +120,7 @@ jobs:
           AUTO_PROFILE_CONF: ${{ steps.stock_probe.outputs.probe_conf }}
           STOCK_PROBED_PATH: ${{ steps.stock_probe.outputs.stock_path }}
         run: |
+          set -o pipefail
           STOCK_INPUT="$STOCK_PROBED_PATH"
           [ -n "$STOCK_INPUT" ] || STOCK_INPUT="${{ inputs.stock_url }}"
           ARGS=(--stock "$STOCK_INPUT" --hyperos "${{ inputs.hyperos_url }}")
@@ -99,7 +131,7 @@ jobs:
             ARGS+=(--device "${{ inputs.device }}")
           fi
           [ -n "${{ inputs.name }}" ] && ARGS+=(--name "${{ inputs.name }}")
-          ./port.sh "${ARGS[@]}"
+          ./port.sh "${ARGS[@]}" 2>&1 | tee -a build_action.log
 
       - name: Add stock probe to summary
         if: always()
@@ -145,6 +177,7 @@ jobs:
           GOOGLE_OAUTH_REFRESH_TOKEN: ${{ secrets.GOOGLE_OAUTH_REFRESH_TOKEN }}
           GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
         run: |
+          python3 scripts/notify.py upload || true
           if [ -z "$GDRIVE_FOLDER_ID" ]; then
             echo "::warning::GDRIVE_FOLDER_ID is not configured; skipping Google Drive upload."
             exit 0
@@ -188,3 +221,36 @@ jobs:
             403) echo "::warning::pixeldrain forbidden - the API key may lack filesystem access; regenerate it at pixeldrain.com/user/api_keys. Artifact still available." ;;
             *)   echo "::warning::pixeldrain upload failed (HTTP $CODE). Artifact still available." ;;
           esac
+
+      - name: Send success notification
+        if: success()
+        continue-on-error: true
+        env:
+          NOTIFY_WORKFLOW_CONCLUSION: success
+        run: python3 scripts/notify.py success
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Build-log-${{ inputs.request_id || github.run_id }}
+          path: build_action.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Send failure notification
+        if: failure()
+        continue-on-error: true
+        env:
+          NOTIFY_WORKFLOW_CONCLUSION: failure
+          NOTIFY_ERROR_LOG: build_action.log
+        run: python3 scripts/notify.py fail
+
+      - name: Send cancellation notification
+        if: cancelled()
+        continue-on-error: true
+        env:
+          NOTIFY_WORKFLOW_CONCLUSION: cancelled
+          NOTIFY_ERROR_LOG: build_action.log
+          NOTIFY_ERROR_REASON: Workflow run was cancelled before completion.
+        run: python3 scripts/notify.py cancelled

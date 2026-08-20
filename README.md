@@ -57,6 +57,13 @@ OPlus Android 16 links containing `downloadCheck` are resolved automatically
 to their signed CDN URL before downloading, with the same retry behaviour as
 the NothingsVN toolbuild flow.
 
+Telegram `/bp4` uses `/bp4 <base ROM> -port <port ROM>`. For workflow-side
+progress notifications, add `TELEGRAM_BOT_TOKEN` to this repository's Actions
+secrets (the same token used by the existing bot). The workflow edits the bot's
+pending message at download, unpack, build, pack and upload stages, then sends a
+fresh completion/failure alert. `TELEGRAM_CHANNEL_ID` is optional for manual
+workflow runs because bot-dispatched runs include the requesting user's ID.
+
 Options:
 
 ```text

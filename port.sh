@@ -20,6 +20,10 @@ PACK_PARTS=(system system_ext product vendor odm)
 log() { printf '%s\n' "$*"; }
 die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 run() { log "+ $*"; "$@"; }
+notify_stage() {
+    [ -f "$HERE/scripts/notify.py" ] || return 0
+    (cd "$HERE" && "$PY" "$HERE/scripts/notify.py" "$1") || true
+}
 # run a noisy tool quietly: swallow its output, but dump it if it fails
 quiet_run() {
     local lf; lf="$(mktemp)"
@@ -70,7 +74,7 @@ decrypt_oplus_link() { # OPlus Android 16 downloadCheck URL -> signed CDN URL
     local url="$1" result attempt
     [[ "$url" == *"downloadCheck"* ]] || { printf '%s\n' "$url"; return 0; }
     for attempt in 1 2 3 4 5; do
-        result="$(DECRYPT_URL="$url" "$PY" - <<'PY'
+        if result="$(DECRYPT_URL="$url" "$PY" - <<'PY'
 import os
 import sys
 import urllib.error
@@ -94,7 +98,7 @@ try:
     request = urllib.request.Request(url, headers=headers)
     opener = urllib.request.build_opener(NoRedirect)
     try:
-        opener.open(request, timeout=20)
+        opener.open(request, timeout=15)
     except urllib.error.HTTPError as error:
         location = error.headers.get("location", "").strip()
         if error.code in (301, 302, 303, 307, 308) and location.startswith("http"):
@@ -104,7 +108,9 @@ except Exception:
     pass
 sys.exit(1)
 PY
-)" && [ -n "$result" ] && { printf '%s\n' "$result"; return 0; }
+)"; then :; else result=""; fi
+        result="$(printf '%s' "$result" | tr -d '\r\n' | xargs)"
+        [ -n "$result" ] && { printf '%s\n' "$result"; return 0; }
         log "OPlus link decryption attempt $attempt/5 failed; retrying" >&2
         sleep 2
     done
@@ -371,10 +377,12 @@ prop_set() {   # file key value ; replace key=... (append if absent)
 }
 
 log "== resolving inputs =="
+notify_stage download
 STOCK_SRC="$(resolve_input "$STOCK" "$DL" stock)"
 HOS4_SRC="$(resolve_input "$HOS4" "$DL" hyperos)"
 
 log "== extracting payloads =="
+notify_stage unpack
 get_images "$STOCK_SRC" "$DL/stock_img" stock vendor odm
 get_images "$HOS4_SRC" "$DL/hyperos_img" hyperos system system_ext product mi_ext
 
@@ -397,6 +405,11 @@ else
     log "== target profile: ${DEV_name:-$DEVICE} ($DEVICE; manual override) =="
 fi
 [ -n "$NAME" ] || NAME="HyperOS-$DEVICE-port"
+mkdir -p "$HERE/build_info"
+printf '%s\n' "${DEV_name:-$DEVICE}" > "$HERE/build_info/device_name.txt"
+printf '%s\n' "${DEV_model:-$DEVICE}" > "$HERE/build_info/device_model.txt"
+printf '%s\n' "$DEVICE" > "$HERE/build_info/device_code.txt"
+printf '%s\n' "HyperOS 4 / OnePlus base" > "$HERE/build_info/rom_version.txt"
 
 log "== unpacking remaining images =="
 unpack_erofs "$IMG_system" "$WORK"
@@ -404,6 +417,7 @@ unpack_erofs "$IMG_system_ext" "$WORK"
 unpack_erofs "$IMG_product" "$WORK"
 unpack_erofs "$IMG_mi_ext" "$WORK"
 MIEXT="$WORK/mi_ext"
+notify_stage build
 
 # 12-step assembly
 PRODUCT="$WORK/product"; SYS="$WORK/system/system"
@@ -539,6 +553,7 @@ fi
 
 # pack
 log "== packing images =="
+notify_stage pack
 TS="$(date +%s)"
 IMGS=()
 for part in "${PACK_PARTS[@]}"; do
@@ -559,6 +574,7 @@ ZIP="$OUT/$NAME.zip"
 log "packing uncompressed zip: $ZIP"
 rm -f "$ZIP"
 ( cd "$OUT" && zip -0 -X -j "$ZIP" "${IMGS[@]##*/}" >/dev/null )
+printf '%s\n' "$(basename "$ZIP")" > "$HERE/build_info/output_zip.txt"
 log "done: $ZIP"
 
 [ "$KEEP_WORK" -eq 1 ] || rm -rf "$DL"

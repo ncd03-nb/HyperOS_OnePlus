@@ -180,6 +180,9 @@ def main() -> int:
     uploaded = _upload_with_retry(request)
     file_id = uploaded["id"]
     url = uploaded.get("webViewLink") or f"https://drive.google.com/file/d/{file_id}/view"
+    info_dir = Path("build_info")
+    info_dir.mkdir(parents=True, exist_ok=True)
+    (info_dir / "output_url.txt").write_text(url, encoding="utf-8")
     print(url)
     return 0
 
