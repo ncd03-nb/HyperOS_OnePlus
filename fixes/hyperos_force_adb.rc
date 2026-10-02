@@ -1,0 +1,37 @@
+# Early ADB, shared by the local porter and Actions.
+on early-init
+    setprop persist.sys.usb.config adb
+    setprop persist.vendor.usb.config adb
+
+on post-fs-data
+    setprop persist.vendor.usb.config adb
+    setprop persist.sys.usb.config adb
+    setprop vendor.sys.usb.adb.disabled 0
+    setprop sys.usb.adb.disabled 0
+    setprop sys.usb.config adb
+    start adbd
+
+on property:ro.persistent_properties.ready=true
+    setprop persist.vendor.usb.config adb
+    setprop persist.sys.usb.config adb
+    setprop sys.usb.config adb
+    start adbd
+
+on boot
+    setprop sys.usb.controller ${vendor.usb.controller}
+    setprop sys.usb.configfs 1
+    setprop persist.vendor.usb.config adb
+    setprop persist.sys.usb.config adb
+    setprop sys.usb.config none
+    setprop sys.usb.config adb
+    start adbd
+
+on property:vendor.sys.usb.adb.disabled=1
+    setprop vendor.sys.usb.adb.disabled 0
+
+on property:sys.usb.adb.disabled=1
+    setprop sys.usb.adb.disabled 0
+
+on property:sys.boot_completed=1
+    setprop sys.usb.config adb
+    start adbd

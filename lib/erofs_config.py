@@ -37,9 +37,11 @@ def load_fs_config(path):
                 line = line.rstrip("\n")
                 if not line.strip():
                     continue
-                parts = line.split(" ")
-                entries[parts[0]] = parts[1:]
-                order.append(parts[0])
+                parts = line.split()
+                key = parts[0].strip("/") or "/"
+                entries[key] = parts[1:]
+                if key not in order:
+                    order.append(key)
     return entries, order
 
 
@@ -52,7 +54,7 @@ def load_file_contexts(path):
                 if not s.strip():
                     continue
                 lines.append(s)
-                by_norm[s.split(" ")[0].replace("\\", "")] = s
+                by_norm[s.split()[0].replace("\\", "").rstrip("/") or "/"] = s
     return lines, by_norm
 
 
@@ -60,7 +62,7 @@ def nearest_context(norm_path, by_norm):
     p = norm_path
     while p:
         if p in by_norm:
-            return by_norm[p].split(" ", 1)[1]
+            return by_norm[p].split(None, 1)[1]
         if "/" not in p.rstrip("/"):
             break
         p = p.rsplit("/", 1)[0]
@@ -86,11 +88,22 @@ def sync_config(work, part):
 
     def ensure(rel, is_dir):
         nonlocal added_fs, added_fc
-        fs_key = "%s/%s" % (part, rel) if rel else part + "/"
+        fs_key = "%s/%s" % (part, rel) if rel else part
+        path = os.path.join(part_dir, rel)
+        is_link = os.path.islink(path)
+        if not is_link and os.name == "nt" and os.path.isfile(path) and os.path.getsize(path) < 1024:
+            with open(path, "rb") as stream:
+                is_link = stream.read(10) == b"!<symlink>"
         if fs_key not in fs_entries:
-            mode = "0755" if is_dir else "0644"
+            # DrvFS reports Windows data files as executable. New bin payloads
+            # need 0755; properties, APKs and init rc files default to 0644.
+            executable = "/bin/" in "/" + rel
+            mode = "0777" if is_link else "0755" if is_dir or executable else "0644"
             fs_entries[fs_key] = ["0", str(root_gid), mode]
             fs_order.append(fs_key)
+            added_fs += 1
+        elif is_link and fs_entries[fs_key][2] != "0777":
+            fs_entries[fs_key][2] = "0777"
             added_fs += 1
         norm = "/%s/%s" % (part, rel) if rel else "/" + part
         if norm not in fc_by_norm:
@@ -128,7 +141,9 @@ def set_context(work, part, rel, label, mode="0644"):
     fs_key = "%s/%s" % (part, rel)
     if fs_key not in fs_entries:
         fs_order.append(fs_key)
-    fs_entries[fs_key] = ["0", str(root_gid), mode]
+    values = list(fs_entries.get(fs_key, ["0", str(root_gid), mode]))
+    values[2] = mode
+    fs_entries[fs_key] = values
 
     norm = "/%s/%s" % (part, rel)
     newline = "%s u:object_r:%s:s0" % (fc_escape(norm), label)

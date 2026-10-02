@@ -2,6 +2,10 @@
 # HyperOS (2-4) -> OnePlus auto-porter (multi-device; see devices/).
 #   ./port.sh --stock <stock-rom> --hyperos <hyperos-rom> [--device <profile>]
 # Inputs: URL, zip, payload.bin or an unpacked directory.
+# Extracted trees require config/*_fs_config and config/*_file_contexts.
+# --apex-stock <ROM/tree> supplies Android-matched system_ext APEX for Ace 3V SDK36.
+# --force-adb enables early ADB (automatic for Ace 3V SDK36).
+# --assemble-only performs assembly and policy compilation, skipping image packing.
 
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -36,7 +40,7 @@ quiet_run() {
 
 # args
 DEVICE=""; STOCK=""; HOS4=""; WORK="work"; OUT="out"; RES="$HERE/RES"
-NAME=""; KEEP_WORK=0
+NAME=""; KEEP_WORK=0; APEX_STOCK=""; FORCE_ADB="${FORCE_ADB:-0}"; ASSEMBLE_ONLY=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --device) DEVICE="$2"; shift 2;;
@@ -47,6 +51,9 @@ while [ $# -gt 0 ]; do
         --res) RES="$2"; shift 2;;
         --name) NAME="$2"; shift 2;;
         --keep-work) KEEP_WORK=1; shift;;
+        --apex-stock) APEX_STOCK="$2"; shift 2;;
+        --force-adb) FORCE_ADB=1; shift;;
+        --assemble-only) ASSEMBLE_ONLY=1; shift;;
         -h|--help) grep '^#' "$0" | sed 's/^# \{0,1\}//'; exit 0;;
         *) die "unknown arg: $1";;
     esac
@@ -67,6 +74,7 @@ fi
 
 WORK="$(mkdir -p "$WORK" && cd "$WORK" && pwd)"
 OUT="$(mkdir -p "$OUT" && cd "$OUT" && pwd)"
+[ "$WORK" != "/" ] && [ "$WORK" != "$HERE" ] || die "--work must be a dedicated build directory"
 DL="$WORK/_inputs"; mkdir -p "$DL"
 
 # input resolution
@@ -169,7 +177,8 @@ resolve_input() {   # src dstdir label -> echoes local path (zip/bin/dir, as-is)
 
 find_dumper() {   # echoes payload-dumper-rust binary if available
     command -v payload_dumper >/dev/null && { echo payload_dumper; return; }
-    [ -x "$EROFS_BIN/payload_dumper" ] && echo "$EROFS_BIN/payload_dumper"
+    if [ -x "$EROFS_BIN/payload_dumper" ]; then echo "$EROFS_BIN/payload_dumper"; fi
+    return 0
 }
 
 # zip/payload.bin -> *.img (rust reads either directly); echoes dir of <part>.img
@@ -200,12 +209,29 @@ get_images() {   # resolved outdir label parts... ; sets IMG_<part> vars
         imgdir="$(dump_payload "$resolved" "$outdir" "$label" "$@")"
     fi
     for p in "$@"; do
-        [ -f "$imgdir/$p.img" ] || die "$label: $p.img not produced"
-        eval "IMG_$p=\"$imgdir/$p.img\""
+        if [ -d "$imgdir/$p" ] && [ -f "$imgdir/config/${p}_fs_config" ] && [ -f "$imgdir/config/${p}_file_contexts" ]; then
+            eval "IMG_$p=\"$imgdir/$p\""
+        else
+            [ -f "$imgdir/$p.img" ] || die "$label: $p.img or extracted $p + config metadata not produced"
+            eval "IMG_$p=\"$imgdir/$p.img\""
+        fi
     done
 }
 
-unpack_erofs() { log "unpacking $(basename "$1")"; quiet_run "$EXTRACT" -i "$1" -x -s -f -o "$2"; }
+unpack_erofs() {
+    log "unpacking $(basename "$1")"
+    if [ -d "$1" ]; then
+        local pname; pname="$(basename "$1")"
+        mkdir -p "$2/config"
+        [ ! -e "$2/$pname" ] || die "refusing to reuse unpacked $2/$pname; choose a fresh --work"
+        cp -a "$1" "$2/$pname"
+        cp "$(dirname "$1")/config/${pname}_fs_config" "$2/config/"
+        cp "$(dirname "$1")/config/${pname}_file_contexts" "$2/config/"
+    else
+        [ ! -e "$2/$(basename "$1" .img)" ] || die "choose a fresh --work; partition tree already exists"
+        quiet_run "$EXTRACT" -i "$1" -x -s -f -o "$2"
+    fi
+}
 
 config_value() { # config-file key
     sed -n "s/^[[:space:]]*$2[[:space:]]*=[[:space:]]*//p" "$1" | head -n1 | sed 's/[[:space:]]*$//'
@@ -220,7 +246,7 @@ load_device_config() {
         k="$(printf '%s' "$k" | tr -d '[:space:]')"
         v="$(printf '%s' "$v" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
         [ -n "$k" ] && eval "DEV_${k}=\$v"
-    done < "$HERE/devices/$DEVICE/device.conf"
+    done < "${1:-$HERE/devices/$DEVICE/device.conf}"
 }
 
 stock_property_values() { # property key; vendor/odm were already unpacked
@@ -264,6 +290,23 @@ safe_profile_component() {
 }
 
 configure_automatic_profile() {
+    # SHARED_AUTO_PROFILE_CONF
+    if [ -n "${AUTO_PROFILE_CONF:-}" ] && [ -f "$AUTO_PROFILE_CONF" ]; then
+        local line k v
+        while IFS= read -r line; do
+            case "$line" in ""|\#*) continue;; esac
+            case "$line" in *=*) : ;; *) continue;; esac
+            k="${line%%=*}"; v="${line#*=}"
+            k="$(printf '%s' "$k" | tr -d '[:space:]')"
+            v="$(printf '%s' "$v" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+            [ -n "$k" ] && eval "DEV_${k}=\$v"
+        done < "$AUTO_PROFILE_CONF"
+        DEVICE="Auto-$(safe_profile_component "${DEV_model:-${DEV_name:-OnePlus}}")"
+        [ "$DEVICE" != "Auto-" ] || DEVICE="Auto-OnePlus"
+        AUTO_PROFILE=1
+        log "== using generated stock-ROM profile: $AUTO_PROFILE_CONF =="
+        return 0
+    fi
     # Build a best-effort profile from the actual OnePlus vendor/odm props.
     # Defaults only keep the pipeline moving; the output is intentionally
     # labelled Automatic so it is never confused with a tested device profile.
@@ -409,7 +452,7 @@ mkdir -p "$HERE/build_info"
 printf '%s\n' "${DEV_name:-$DEVICE}" > "$HERE/build_info/device_name.txt"
 printf '%s\n' "${DEV_model:-$DEVICE}" > "$HERE/build_info/device_model.txt"
 printf '%s\n' "$DEVICE" > "$HERE/build_info/device_code.txt"
-printf '%s\n' "HyperOS 4 / OnePlus base" > "$HERE/build_info/rom_version.txt"
+# Version information is written after reading the donor properties.
 
 log "== unpacking remaining images =="
 unpack_erofs "$IMG_system" "$WORK"
@@ -417,6 +460,24 @@ unpack_erofs "$IMG_system_ext" "$WORK"
 unpack_erofs "$IMG_product" "$WORK"
 unpack_erofs "$IMG_mi_ext" "$WORK"
 MIEXT="$WORK/mi_ext"
+DONOR_SDK="$("$PY" "$HERE/lib/port_compat.py" sdk "$WORK")"
+ACE16=0
+APEX_ROOT=""
+if [ "$DEVICE" = "OnePlusAce3V" ] && [ "$DONOR_SDK" = "36" ]; then
+    ACE16=1
+    load_device_config "$HERE/devices/$DEVICE/android-36/device.conf"
+    # APEX comes from a separate, Android-matched system_ext; vendor/odm keep
+    # the requested hardware base. Never overwrite the donor's system_ext here.
+    APEX_SRC="$STOCK_SRC"
+    [ -z "$APEX_STOCK" ] || APEX_SRC="$(resolve_input "$APEX_STOCK" "$DL" apex_stock)"
+    get_images "$APEX_SRC" "$DL/apex_stock_img" apex_stock system_ext
+    APEX_ROOT="$WORK/_stock_apex"
+    mkdir -p "$APEX_ROOT"
+    unpack_erofs "$IMG_system_ext" "$APEX_ROOT"
+    [ "$("$PY" "$HERE/lib/port_compat.py" sdk "$APEX_ROOT")" = "$DONOR_SDK" ] || die "stock APEX SDK does not match donor SDK $DONOR_SDK; supply --apex-stock Android 16"
+    command -v secilc >/dev/null || die "Ace 3V Android 16 requires secilc (run requirements.sh)"
+fi
+printf '%s\n' "HyperOS / Android SDK $DONOR_SDK / OnePlus base" > "$HERE/build_info/rom_version.txt"
 notify_stage build
 
 # 12-step assembly
@@ -424,17 +485,8 @@ PRODUCT="$WORK/product"; SYS="$WORK/system/system"
 SYSEXT="$WORK/system_ext"; VENDOR="$WORK/vendor"; ODM="$WORK/odm"
 PROD_BP="$PRODUCT/etc/build.prop"
 
-log "[1] folding mi_ext into product + system"
-[ -d "$MIEXT/product" ] && cp -a "$MIEXT/product/." "$PRODUCT/" && rm -rf "$MIEXT/product"
-[ -d "$MIEXT/system" ] && cp -a "$MIEXT/system/." "$SYS/" && rm -rf "$MIEXT/system"
-
-log "[2] merging mi_ext/etc/build.prop into product + system/system build.prop"
-if [ -f "$MIEXT/etc/build.prop" ]; then
-    # drop the huge ab_ota_partitions line once, so it reaches neither target
-    prop_remove_prefix "$MIEXT/etc/build.prop" "ro.vendor.build.ab_ota_partitions="
-    printf '\n' >> "$PROD_BP"; cat "$MIEXT/etc/build.prop" >> "$PROD_BP"
-    printf '\n' >> "$SYS/build.prop"; cat "$MIEXT/etc/build.prop" >> "$SYS/build.prop"
-fi
+log "[1-2] assembling mi_ext and preserving source metadata"
+run "$PY" "$HERE/lib/port_compat.py" assemble "$WORK" --device "$DEVICE"
 
 log "[3] system/system/build.prop: home + dexopt"
 apply_fix "$SYS/build.prop" "# $SIG" system.build.prop
@@ -442,10 +494,7 @@ apply_fix "$SYS/build.prop" "# $SIG" system.build.prop
 log "[4] tagging ro.mi.os.version.incremental with | $SIG"
 tag_incremental "$PROD_BP"
 
-log "[5] moving product/pangu/system -> system/system"
-if [ -d "$PRODUCT/pangu/system" ]; then
-    cp -a "$PRODUCT/pangu/system/." "$SYS/" && rm -rf "$PRODUCT/pangu/system"
-fi
+# Pangu was moved with its metadata by port_compat.py.
 
 # step 6 vendor props live in fixes/vendor.build.prop, applied in [FIX] below
 log "[6] OP13 vendor props applied from fixes/vendor.build.prop (in [FIX])"
@@ -464,31 +513,51 @@ log "[10] product/etc/build.prop: density 600 + status bar tint"
 apply_fix "$PROD_BP" "# $SIG" product.build.prop
 
 log "[11] removing system_ext/priv-app/qcrilmsgtunnel"
-rm -rf "$SYSEXT/priv-app/qcrilmsgtunnel"
+[ "$ACE16" -eq 1 ] || rm -rf "$SYSEXT/priv-app/qcrilmsgtunnel"
 
-log "[12] removing product/priv-app/MiuiCamera (replaced from RES)"
-rm -rf "$PRODUCT/priv-app/MiuiCamera"
+# SHARED_DEVICE_CAMERA_SOURCE
+CAMERA_SOURCE="${DEV_camera_source:-gdrive}"
+case "$CAMERA_SOURCE" in
+    donor)
+        log "[12] keeping HyperOS donor MiuiCamera for $DEVICE"
+        ;;
+    gdrive|"")
+        log "[12] removing product/priv-app/MiuiCamera (replaced from RES)"
+        rm -rf "$PRODUCT/priv-app/MiuiCamera"
 
-# fetch MiuiCamera into RES if missing (too big for git)
-CAM="$RES/product/priv-app/MiuiCamera/MiuiCamera.apk"
-if [ ! -f "$CAM" ]; then
-    log "[RES] MiuiCamera not present; downloading from Google Drive"
-    mkdir -p "$RES/product/priv-app"
-    run "$PY" "$HERE/lib/gdrive.py" "${DEV_camera_gdrive_id:-$DEFAULT_CAMERA_GDRIVE_ID}" "$RES/_MiuiCamera.zip"
-    run unzip -o -q "$RES/_MiuiCamera.zip" -d "$RES/product/priv-app/"
-    rm -f "$RES/_MiuiCamera.zip"
-    [ -f "$CAM" ] || die "camera zip did not contain MiuiCamera/MiuiCamera.apk"
-fi
+        # fetch MiuiCamera into RES if missing (too big for git)
+        CAM="$RES/product/priv-app/MiuiCamera/MiuiCamera.apk"
+        if [ ! -f "$CAM" ]; then
+            log "[RES] MiuiCamera not present; downloading from Google Drive"
+            mkdir -p "$RES/product/priv-app"
+            run "$PY" "$HERE/lib/gdrive.py" "${DEV_camera_gdrive_id:-$DEFAULT_CAMERA_GDRIVE_ID}" "$RES/_MiuiCamera.zip"
+            run unzip -o -q "$RES/_MiuiCamera.zip" -d "$RES/product/priv-app/"
+            rm -f "$RES/_MiuiCamera.zip"
+            [ -f "$CAM" ] || die "camera zip did not contain MiuiCamera/MiuiCamera.apk"
+        fi
+        ;;
+    *)
+        die "unsupported camera_source '$CAMERA_SOURCE' (expected donor or gdrive)"
+        ;;
+esac
 
 # RES overlay
 log "[RES] overlaying RES files"
+# Keep camera_source=donor effective even if RES has a cached generic camera.
+if [ "$CAMERA_SOURCE" = "donor" ] && [ -d "$PRODUCT/priv-app/MiuiCamera" ]; then
+    mv "$PRODUCT/priv-app/MiuiCamera" "$WORK/_donor_camera"
+fi
 if [ -d "$RES" ]; then
     for part in "$RES"/*/; do
         [ -d "$part" ] || continue
         pname="$(basename "$part")"
         mkdir -p "$WORK/$pname"
-        cp -a "$part". "$WORK/$pname/"
+        cp -a --remove-destination "$part". "$WORK/$pname/"
     done
+fi
+if [ "$CAMERA_SOURCE" = "donor" ]; then
+    rm -rf "$PRODUCT/priv-app/MiuiCamera"
+    [ ! -d "$WORK/_donor_camera" ] || mv "$WORK/_donor_camera" "$PRODUCT/priv-app/MiuiCamera"
 fi
 
 # vendor line-based fixes
@@ -504,6 +573,7 @@ fi
 
 # device folder: displayconfig + device_features overlay, then scalar overrides
 DDIR="$HERE/devices/$DEVICE"
+[ "$ACE16" -eq 0 ] || DDIR="$DDIR/android-36"
 [ "${AUTO_PROFILE:-0}" -eq 1 ] && DDIR=""
 log "[DEVICE] ${DEV_name:-$DEVICE} ($DEVICE)"
 if [ -d "$DDIR/displayconfig" ]; then
@@ -515,7 +585,7 @@ elif [ "${AUTO_PROFILE:-0}" -eq 1 ] && [ -d "$VENDOR/etc/displayconfig" ]; then
     cp -a "$VENDOR/etc/displayconfig/." "$WORK/product/etc/displayconfig/"
 fi
 DEVNAME="$(grep -m1 -E '^ro\.product\.(vendor\.)?device=' "$VENDOR/build.prop" 2>/dev/null | cut -d= -f2 | tr -d '[:space:]')"
-if [ -f "$DDIR/device_features.xml" ] && [ -n "$DEVNAME" ]; then
+if [ "$ACE16" -eq 0 ] && [ -f "$DDIR/device_features.xml" ] && [ -n "$DEVNAME" ]; then
     mkdir -p "$WORK/product/etc/device_features"
     cp "$DDIR/device_features.xml" "$WORK/product/etc/device_features/$DEVNAME.xml"
     log "    device_features -> $DEVNAME.xml"
@@ -529,13 +599,43 @@ elif [ "${AUTO_PROFILE:-0}" -eq 1 ] && [ -n "$DEVNAME" ] && [ ! -f "$WORK/produc
         log "    device_features donor fallback -> $DEVNAME.xml"
     fi
 fi
+# SHARED_DEVICE_FEATURE_OVERRIDES
+if [ -n "${DEV_fod_solution:-}" ] && [ -n "$DEVNAME" ]; then
+    FEATURE_FILE="$WORK/product/etc/device_features/$DEVNAME.xml"
+    if [ -f "$FEATURE_FILE" ]; then
+        if grep -q '<integer name="fod_solution">' "$FEATURE_FILE"; then
+            sed -i -E "s#<integer name=\"fod_solution\">[^<]*</integer>#<integer name=\"fod_solution\">${DEV_fod_solution}</integer>#" "$FEATURE_FILE"
+            log "    device_features: fod_solution=${DEV_fod_solution}"
+        else
+            sed -i "s#</features>#    <integer name=\"fod_solution\">${DEV_fod_solution}</integer>\n</features>#" "$FEATURE_FILE"
+            log "    device_features: added fod_solution=${DEV_fod_solution}"
+        fi
+    fi
+fi
 prop_set "$VENDOR/build.prop" "persist.vendor.sys.fp.fod.location.X_Y" "${DEV_fod_location:-}"
 prop_set "$VENDOR/build.prop" "persist.vendor.sys.fp.fod.size.width_height" "${DEV_fod_size:-}"
 prop_set "$VENDOR/build.prop" "persist.vendor.sys.fp.fod.us.target" "${DEV_fod_target:-}"
 prop_set "$VENDOR/build.prop" "persist.sys.miui_resolution" "${DEV_miui_resolution:-}"
+# SHARED_DEVICE_PANEL_POLICY
+if [ "${DEV_ltpo:-}" = "false" ]; then
+    log "    panel policy: fixed-mode/non-LTPO (${DEV_refresh_rates:-120,90,60})"
+    prop_set "$VENDOR/build.prop" "ro.vendor.mi_sf.ltpo.support" "false"
+    prop_set "$VENDOR/build.prop" "ro.vendor.mi_sf.support_gradient_idleframerate" "false"
+    prop_set "$VENDOR/build.prop" "ro.vendor.mi_sf.aod_mode_ddic_refresh_rate" "60"
+    prop_set "$VENDOR/build.prop" "ro.vendor.display.primary_idle_refresh_rate" "60"
+    prop_set "$VENDOR/build.prop" "ro.vendor.display.idle_default_fps" "60"
+    prop_set "$VENDOR/build.prop" "ro.vendor.display.dynamic_refresh_rate" "${DEV_refresh_rates:-120,90,60}"
+fi
 prop_set "$PROD_BP" "persist.miui.density_v2" "${DEV_density:-}"
 prop_set "$PROD_BP" "ro.sf.lcd_density" "${DEV_density:-}"
 prop_set "$ODM/build.prop" "ro.product.odm.marketname" "${DEV_marketname:-}"
+
+# Shared, version-aware finishing pass; no device-side test/log wrappers.
+COMPAT_ARGS=(finish "$WORK" --device "$DEVICE")
+[ -z "$APEX_ROOT" ] || COMPAT_ARGS+=(--apex-stock "$APEX_ROOT")
+case "$FORCE_ADB" in 1|true|yes|on) COMPAT_ARGS+=(--force-adb);; esac
+run "$PY" "$HERE/lib/port_compat.py" "${COMPAT_ARGS[@]}"
+cp "$WORK/port_compat.json" "$HERE/build_info/port_compat.json"
 
 # SELinux config synthesis (delegated to Python helper)
 log "== syncing SELinux config =="
@@ -552,6 +652,10 @@ if [ -d "$VENDOR/etc/permissions" ]; then
 fi
 
 # pack
+if [ "$ASSEMBLE_ONLY" -eq 1 ]; then
+    log "assembled: $WORK (images were not packed)"
+    exit 0
+fi
 log "== packing images =="
 notify_stage pack
 TS="$(date +%s)"
@@ -567,6 +671,9 @@ for part in "${PACK_PARTS[@]}"; do
         "$img" "$WORK/$part"
     log "  -> $(du -h "$img" | cut -f1)"
     IMGS+=("$img")
+    # The image now owns the complete tree. Free intermediate space before
+    # the next image/ZIP; --keep-work retains trees for inspection.
+    [ "$KEEP_WORK" -eq 1 ] || rm -rf "$WORK/$part"
 done
 
 # uncompressed zip

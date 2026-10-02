@@ -25,17 +25,17 @@ install_packages() {
     echo "== detected: $id_line =="
     case "$id_line" in
         *arch*|*manjaro*|*cachyos*|*endeavour*)
-            $SUDO pacman -Sy --needed --noconfirm python aria2 curl unzip zip tar
+            $SUDO pacman -Sy --needed --noconfirm python aria2 curl unzip zip tar secilc
             ;;
         *debian*|*ubuntu*|*mint*|*pop*)
             $SUDO apt-get update
-            $SUDO apt-get install -y python3 aria2 curl unzip zip tar
+            $SUDO apt-get install -y python3 aria2 curl unzip zip tar secilc
             ;;
         *fedora*|*rhel*|*centos*)
-            $SUDO dnf install -y python3 aria2 curl unzip zip tar
+            $SUDO dnf install -y python3 aria2 curl unzip zip tar secilc
             ;;
         *)
-            echo "unsupported distro; install manually: python3 aria2 curl unzip zip tar"
+            echo "unsupported distro; install manually: python3 aria2 curl unzip zip tar secilc"
             return 1
             ;;
     esac

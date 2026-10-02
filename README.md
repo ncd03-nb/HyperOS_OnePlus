@@ -25,6 +25,7 @@ adding a device is a config file, not a code change.
 |--------|----------|--------|
 | **OnePlus 13** | `PJZ110` | ✅ Fully Supported |
 | **OnePlus 15** | `PLK110` | ⚠️ Supported but untested |
+| **OnePlus Ace 3V** | `PJF110` | HyperOS 3 / Android 16 boot confirmed via DSU; Android 17 uses the existing profile |
 
 ## Requirements
 
@@ -53,6 +54,12 @@ optional manual override (for example, `OnePlus13`).
 `payload.bin`, or a directory of raw `.img` files. The finished zip lands in
 `out/`.
 
+For Ace 3V HyperOS 3 Android 16, use an Android 16 stock ROM containing
+`system_ext`, or supply it separately with `--apex-stock`. The hardware
+`vendor`/`odm` still come from `--stock`; the APEX source must match the
+donor's Android SDK. See [the Ace 3V flow](docs/ace3v-android16.md) for the
+tested donor, extracted-tree build example and remaining compatibility limits.
+
 OPlus Android 16 links containing `downloadCheck` are resolved automatically
 to their signed CDN URL before downloading, with the same retry behaviour as
 the NothingsVN toolbuild flow.
@@ -73,6 +80,9 @@ Options:
 --work <dir>          working directory (default: work)
 --res <dir>           overlay directory (default: RES)
 --keep-work           keep the working tree instead of cleaning it up
+--apex-stock <input>  separate Android-matched stock ROM/tree for Ace 3V SDK36 APEX
+--force-adb           force early insecure ADB; enabled automatically for Ace 3V SDK36
+--assemble-only       assemble and compile policy without repacking images
 ```
 
 `port.sh` is the entry point. It's mostly Bash, and calls small Python helpers
@@ -164,8 +174,8 @@ slightly buggy fullscreen AOD.
 
 1. Extract OnePlus `vendor` and `odm` from the stock ROM.
 2. Extract HyperOS `system`, `system_ext`, `product` and `mi_ext`.
-3. Fold `mi_ext/product` into `product` and `mi_ext/system` into
-   `system/system`.
+3. Fold `mi_ext/product`, `mi_ext/system_ext` and `mi_ext/system` into
+   their target partitions, retaining their source metadata.
 4. Merge `mi_ext/etc/build.prop` into `product` and `system/system`, dropping
    the huge `ro.vendor.build.ab_ota_partitions` line.
 5. Add MIUI home/dexopt props to `system/system/build.prop`.
@@ -182,6 +192,10 @@ slightly buggy fullscreen AOD.
 
 Then it applies the `RES/` overlays and the device overrides, regenerates the
 EROFS `fs_config` / `file_contexts`, repacks each partition, and writes the zip.
+Ace 3V SDK36 additionally moves the remaining `mi_ext` into the system image,
+moves the complete `pangu` directory, replaces `system_ext` APEX from matching
+stock, compiles the permissive development policy, and applies the setup/ADB
+compatibility flow. These changes are selected by donor SDK, not the ROM name.
 
 ## RES overlays
 

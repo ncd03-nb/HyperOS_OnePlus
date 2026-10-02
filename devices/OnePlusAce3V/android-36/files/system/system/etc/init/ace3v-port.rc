@@ -1,0 +1,33 @@
+# Ace 3V Android 16 development port.
+on early-init
+    exec u:r:init:s0 root root -- /system/bin/setenforce 0
+
+on post-fs
+    mkdir /mnt/vendor 0755 root root
+    symlink /mi_ext /mnt/vendor/mi_ext
+
+service ace3v-alert-slider /system/bin/app_process /system/bin Ace3vHardware slider
+    class late_start
+    user system
+    group system input audio
+    seclabel u:r:shell:s0
+    setenv CLASSPATH /system/framework/ace3v-hardware.jar
+    disabled
+
+service ace3v-skip-setup /system/bin/sh /system/bin/ace3v-skip-setup.sh
+    user root
+    group root system shell
+    seclabel u:r:shell:s0
+    disabled
+    oneshot
+
+on boot
+    start ace3v-skip-setup
+
+on property:init.svc.zygote=running
+    start ace3v-skip-setup
+
+on property:sys.boot_completed=1
+    setprop sys.haptic.motor linear
+    start ace3v-alert-slider
+    start ace3v-skip-setup

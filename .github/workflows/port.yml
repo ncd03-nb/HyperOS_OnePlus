@@ -20,6 +20,11 @@ on:
         description: "HyperOS ROM link (HyperOS 2 to 4, full recovery/OTA zip or payload.bin)"
         required: true
         type: string
+      apex_stock_url:
+        description: "Optional Android-matched stock ROM for system_ext APEX (Ace 3V Android 16)"
+        required: false
+        default: ""
+        type: string
       name:
         description: "Output name for the flashable zip (optional)"
         required: false
@@ -108,22 +113,18 @@ jobs:
             echo "probe_report=" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Prepare porter for Actions auto-profile/debug
-        env:
-          FORCE_ADB: ${{ inputs.force_adb }}
-        run: |
-          python3 scripts/patch_port_for_actions.py port.sh
-          echo "Force ADB: $FORCE_ADB"
-
       - name: Build port
         env:
           AUTO_PROFILE_CONF: ${{ steps.stock_probe.outputs.probe_conf }}
           STOCK_PROBED_PATH: ${{ steps.stock_probe.outputs.stock_path }}
+          FORCE_ADB: ${{ inputs.force_adb }}
+          APEX_STOCK_INPUT: ${{ inputs.apex_stock_url }}
         run: |
           set -o pipefail
           STOCK_INPUT="$STOCK_PROBED_PATH"
           [ -n "$STOCK_INPUT" ] || STOCK_INPUT="${{ inputs.stock_url }}"
           ARGS=(--stock "$STOCK_INPUT" --hyperos "${{ inputs.hyperos_url }}")
+          [ -z "$APEX_STOCK_INPUT" ] || ARGS+=(--apex-stock "$APEX_STOCK_INPUT")
           if [ -n "${{ inputs.device }}" ]; then
             [[ "${{ inputs.device }}" =~ ^[A-Za-z0-9_-]+$ ]] || { echo "Invalid device profile"; exit 1; }
             [ "${{ inputs.device }}" != "_template" ] || { echo "The template is not buildable"; exit 1; }
