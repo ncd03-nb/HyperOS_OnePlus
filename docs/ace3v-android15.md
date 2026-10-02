@@ -33,14 +33,28 @@ The local stock tree is
   cannot enable insecure/root ADB on SDK35. Optional `--adb-key adbkey.pub`
   authorizes a caller-provided public key while retaining authentication.
   No personal key is committed.
-- SDK35 removes standalone `resetprop`/`xeutoolbox` calls changing `ro.secure`
-  or `ro.debuggable` from extracted init/scripts. Static secure defaults remain.
+- SDK35 removes standalone `resetprop`/`xeutoolbox` calls changing `ro.secure`,
+  `ro.debuggable`, `ro.adb.secure` and donor boot-state overrides from extracted
+  init/scripts. Toolbuild's ResetProp package adds 13 synchronous calls to
+  `post-fs-data`: four security resets and nine locked/green/vbmeta overrides.
+  The latter describe the donor's vbmeta, rather than the Ace 3V boot chain.
+  R2 removed only the four security resets; R3 removes all 13. The target's
+  real bootloader properties and static secure defaults remain. Unrelated
+  hardware property resets are preserved. Binary SHA256, executable metadata
+  and init execute permission matched the donor; no executable-label defect
+  was found. ResetProp has not been established as the shutdown cause.
   Its separate early ADB recipe starts the APEX-provided daemon when APEXes are
   ready, at `zygote-start`, and when bootanimation runs. The Ace 3V vendor uses
   controller `a600000.dwc3`, with the gadget HAL disabled; Qualcomm creates the
   gadget and FunctionFS mount at `zygote-start`. Standard configfs actions
-  bind USB only after adbd signals `sys.usb.ffs.ready=1`. A guarded named init
-  event also binds after gadget creation if readiness arrived earlier.
+  bind USB only after adbd signals `sys.usb.ffs.ready=1`. A named init event
+  queued from `zygote-start` restarts adbd after all vendor actions have
+  created/mounted FunctionFS. Android 15's
+  [adbd startup code](https://android.googlesource.com/platform/packages/modules/adb/+/android-15.0.0_r1/daemon/main.cpp)
+  checks the existence of `/dev/usb-ffs/adb/ep0` once before starting USB.
+  R2's repeated `start` commands leave an already-running daemon unchanged,
+  so it can miss USB when started before the mount. R3 performs one restart
+  per `zygote-start` event. A separate guarded event handles gadget binding.
   The port never fakes
   readiness and does not cycle an active gadget through `none` during boot.
   This changes ADB timing; it does not establish the cause of the shutdown.

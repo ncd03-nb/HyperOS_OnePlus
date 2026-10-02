@@ -250,11 +250,18 @@ def force_adb(root, assets, ace16=False):
 
 
 def remove_adb_property_resets(root):
-    """Remove standalone donor property reset commands, retaining static defaults."""
+    """Keep security defaults and the target bootloader's actual boot state.
+
+    Toolbuild appends synchronous ResetProp execs at post-fs-data, including
+    donor vbmeta values and duplicate security resets. Those values do not
+    describe the Ace 3V boot chain. Leave unrelated hardware resets intact.
+    """
     command = re.compile(
         r'^[ \t]*(?:exec(?:_background)?\b[^\n]*?--\s+)?'
         r'(?:\S*/)?(?:resetprop|xeutoolbox)\s+(?:-\S+\s+)*'
-        r'ro\.(?:secure|debuggable)\s+\S+[ \t]*(?:#.*)?$', re.M)
+        r'ro\.(?:secure|debuggable|adb\.secure|secureboot\.lockstate|'
+        r'boot\.(?:verifiedbootstate|flash\.locked|vbmeta\.(?:device_state|'
+        r'avb_version|hash_alg|size|digest)))\s+\S+[ \t]*(?:#.*)?$', re.M)
     removed = 0
     for part in PARTS:
         for path in (root / part).rglob('*'):

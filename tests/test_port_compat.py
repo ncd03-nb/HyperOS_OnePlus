@@ -100,16 +100,17 @@ class PortFlowTests(unittest.TestCase):
     def test_android15_removes_runtime_security_resets_and_starts_before_setup(self):
         port.set_props(self.root / 'system/system/build.prop', {'ro.build.version.sdk': '35'})
         path = self.root / 'system/system/etc/init/hw/init.rc'
-        retained = '    exec -- /system_ext/xbin/xeutoolbox -n ro.secureboot.lockstate locked\n'
+        retained = '    exec -- /system_ext/xbin/xeutoolbox -n ro.vendor.display.panel device-panel\n'
         port.write(path, 'on post-fs-data\n'
                    '    exec u:r:init:s0 root root -- /system_ext/xbin/xeutoolbox -n ro.secure 1\n'
-                   '    exec -- /system/bin/resetprop -n ro.debuggable 0\n' + retained)
+                   '    exec -- /system/bin/resetprop -n ro.debuggable 0\n'
+                   '    exec -- /system_ext/xbin/xeutoolbox -n ro.secureboot.lockstate locked\n' + retained)
         script = self.root / 'vendor/bin/example.sh'
         port.write(script, '#!/system/bin/sh\nresetprop ro.secure 0\nresetprop -n ro.debuggable 1\n')
         alias = self.root / 'vendor/bin/example-link.sh'
         port.link(alias, '/vendor/bin/example.sh')
         port.secure_adb(self.root, REPO / 'fixes', ace16=True)
-        self.assertEqual(path.read_text(), 'on post-fs-data\n\n\n' + retained)
+        self.assertEqual(path.read_text(), 'on post-fs-data\n\n\n\n' + retained)
         self.assertNotIn('resetprop', script.read_text())
         self.assertTrue(alias.is_symlink() if os.name != 'nt' else alias.read_bytes().startswith(b'!<symlink>'))
         self.assertEqual(port.remove_adb_property_resets(self.root), 0)
@@ -126,6 +127,36 @@ class PortFlowTests(unittest.TestCase):
         self.assertIn('property:sys.usb.config=adb', bind.splitlines()[0])
         self.assertIn('property:sys.usb.configfs=1', bind.splitlines()[0])
         self.assertEqual(port.properties(self.root / 'system/system/etc/prop.default')['ro.secure'], '1')
+
+    def test_android15_removes_all_toolbuild_boot_resets_without_touching_hardware(self):
+        values = [('boot.vbmeta.device_state', 'locked'), ('boot.verifiedbootstate', 'green'),
+                  ('secureboot.lockstate', 'locked'), ('boot.flash.locked', '1'),
+                  ('secure', '1'), ('debuggable', '0'), ('boot.vbmeta.avb_version', '1.3'),
+                  ('boot.vbmeta.hash_alg', 'sha256'), ('boot.vbmeta.size', '8192'),
+                  ('boot.vbmeta.digest', 'donor-digest'), ('secure', '1'),
+                  ('debuggable', '0'), ('boot.flash.locked', '1')]
+        path = self.root / 'system/system/etc/init/hw/init.rc'
+        hardware = '    exec -- /system_ext/xbin/xeutoolbox -n ro.boot.hardware qcom\n'
+        port.write(path, 'on post-fs-data\n' + ''.join(
+            f'    exec u:r:init:s0 root root -- /system_ext/xbin/xeutoolbox -n ro.{key} {value}\n'
+            for key, value in values) + hardware)
+        self.assertEqual(port.remove_adb_property_resets(self.root), 13)
+        self.assertEqual(path.read_text(), 'on post-fs-data\n' + '\n' * 13 + hardware)
+        self.assertEqual(port.remove_adb_property_resets(self.root), 0)
+
+    def test_android15_restarts_adbd_only_after_vendor_gadget_event(self):
+        rc = (REPO / 'fixes/hyperos_early_adb_a15.rc').read_text()
+        actions = {}
+        for block in re.split(r'(?m)^on ', rc)[1:]:
+            lines = block.splitlines()
+            actions[lines[0]] = [line.strip() for line in lines[1:] if line.startswith('    ')]
+        # Init queues the named event behind every vendor zygote-start action.
+        self.assertIn('trigger ace3v-adb-usb-ready', actions['zygote-start'])
+        self.assertNotIn('restart adbd', actions['zygote-start'])
+        ready = actions['ace3v-adb-usb-ready']
+        self.assertLess(ready.index('setprop service.adb.root 0'), ready.index('restart adbd'))
+        self.assertLess(ready.index('restart adbd'), ready.index('trigger ace3v-adb-bind'))
+        self.assertEqual(sum(action.count('restart adbd') for action in actions.values()), 1)
 
     def test_android15_direct_force_adb_cannot_disable_authentication(self):
         port.set_props(self.root / 'system/system/build.prop', {'ro.build.version.sdk': '35'})

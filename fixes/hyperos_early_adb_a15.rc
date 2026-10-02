@@ -32,6 +32,14 @@ on zygote-start
     setprop sys.usb.configfs 1
     setprop sys.usb.config adb
     start adbd
+    trigger ace3v-adb-usb-ready
+
+# Named events run after all zygote-start actions, including the vendor's
+# FunctionFS mount. adbd checks ep0 at process startup; start alone cannot
+# initialize USB if the existing process started before that mount.
+on ace3v-adb-usb-ready
+    setprop service.adb.root 0
+    restart adbd
     trigger ace3v-adb-bind
 
 on property:init.svc.bootanim=running
