@@ -1,0 +1,83 @@
+# Authenticated shell ADB, independent of setup and sys.boot_completed.
+# Keep the APEX service override and normal privilege dropping intact.
+on early-init
+    setenforce 1
+    setprop service.adb.root 0
+    setprop persist.sys.usb.config adb
+    setprop persist.vendor.usb.config adb
+
+on init
+    setprop vendor.sys.usb.adb.disabled 0
+    setprop sys.usb.adb.disabled 0
+
+on property:vendor.usb.controller=* && property:vendor.usb.use_gadget_hal=0
+    setprop sys.usb.controller ${vendor.usb.controller}
+    setprop sys.usb.configfs 1
+
+on post-fs-data
+    setprop persist.sys.usb.config adb
+    setprop persist.vendor.usb.config adb
+    setprop sys.usb.config adb
+    start adbd
+
+# The compressed adbd APEX supplies the executable and overrides the service.
+on property:apex.all.ready=true
+    setprop service.adb.root 0
+    setprop sys.usb.config adb
+    start adbd
+
+# Qualcomm creates the gadget and mounts FunctionFS in this event.
+on zygote-start
+    setprop sys.usb.controller ${vendor.usb.controller}
+    setprop sys.usb.configfs 1
+    setprop sys.usb.config adb
+    start adbd
+    trigger ace3v-adb-bind
+
+on property:init.svc.bootanim=running
+    setprop vendor.sys.usb.adb.disabled 0
+    setprop sys.usb.adb.disabled 0
+    setprop sys.usb.controller ${vendor.usb.controller}
+    setprop sys.usb.configfs 1
+    setprop sys.usb.config adb
+    start adbd
+    trigger ace3v-adb-bind
+
+# ADB may signal readiness before Qualcomm creates the gadget. A named event
+# queued during zygote-start runs after that event's vendor actions. If adbd
+# is still waiting, the stock ffs.ready property action performs this later.
+on ace3v-adb-bind && property:sys.usb.ffs.ready=1 && property:sys.usb.config=adb && property:sys.usb.configfs=1
+    write /config/usb_gadget/g1/idVendor 0x22D9
+    write /config/usb_gadget/g1/idProduct 0x2769
+    write /config/usb_gadget/g1/configs/b.1/strings/0x409/configuration adb
+    symlink /config/usb_gadget/g1/functions/ffs.adb /config/usb_gadget/g1/configs/b.1/f1
+    write /config/usb_gadget/g1/UDC ${sys.usb.controller}
+    setprop sys.usb.state adb
+
+on property:ro.persistent_properties.ready=true
+    setprop persist.sys.usb.config adb
+    setprop persist.vendor.usb.config adb
+    setprop sys.usb.config adb
+    start adbd
+
+on boot
+    setprop sys.usb.config adb
+    start adbd
+
+# Recover an OEM USB disable during animation without cycling an active gadget.
+on property:sys.usb.config=none && property:init.svc.bootanim=running
+    setprop sys.usb.config adb
+    start adbd
+
+on property:vendor.sys.usb.adb.disabled=1
+    setprop vendor.sys.usb.adb.disabled 0
+
+on property:sys.usb.adb.disabled=1
+    setprop sys.usb.adb.disabled 0
+
+on property:sys.boot_completed=1
+    setprop sys.usb.config adb
+    start adbd
+
+# sys.usb.ffs.ready is owned by adbd; the stock configfs actions bind the UDC
+# only after the daemon has actually opened the FunctionFS endpoints.

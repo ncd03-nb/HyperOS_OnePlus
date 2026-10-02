@@ -2,7 +2,9 @@
 
 SDK35 uses the complete mi_ext/pangu assembly from Android 16, with Android 15
 stock APEX and a separate enforcing service profile. The local donor is
-mondrian `OS3.0.2.0.VMNTWXM`. Device boot and hardware are not yet verified.
+mondrian `OS3.0.2.0.VMNTWXM`. The first local Android 15 build reaches
+bootanimation, then shuts down, and USB ADB does not enumerate. A completed
+boot and hardware operation are not yet verified.
 
 ```bash
 ./port.sh --device OnePlusAce3V \
@@ -31,6 +33,17 @@ The local stock tree is
   cannot enable insecure/root ADB on SDK35. Optional `--adb-key adbkey.pub`
   authorizes a caller-provided public key while retaining authentication.
   No personal key is committed.
+- SDK35 removes standalone `resetprop`/`xeutoolbox` calls changing `ro.secure`
+  or `ro.debuggable` from extracted init/scripts. Static secure defaults remain.
+  Its separate early ADB recipe starts the APEX-provided daemon when APEXes are
+  ready, at `zygote-start`, and when bootanimation runs. The Ace 3V vendor uses
+  controller `a600000.dwc3`, with the gadget HAL disabled; Qualcomm creates the
+  gadget and FunctionFS mount at `zygote-start`. Standard configfs actions
+  bind USB only after adbd signals `sys.usb.ffs.ready=1`. A guarded named init
+  event also binds after gadget creation if readiness arrived earlier.
+  The port never fakes
+  readiness and does not cycle an active gadget through `none` during boot.
+  This changes ADB timing; it does not establish the cause of the shutdown.
 - Init requests enforcing. Shipped production/userdebug CIL has no
   `typepermissive`; `seinfo` must confirm zero permissive types in the compiled
   binary before packing. Vendor/ODM release/debug cached policies share that

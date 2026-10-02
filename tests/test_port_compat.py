@@ -97,6 +97,36 @@ class PortFlowTests(unittest.TestCase):
         self.assertIn('reboot_on_failure', (self.root / 'system/system/etc/init/hw/init.rc').read_text())
         self.assertNotIn('--root_seclabel', (self.root / 'system/system/etc/init/hw/init.usb.rc').read_text())
 
+    def test_android15_removes_runtime_security_resets_and_starts_before_setup(self):
+        port.set_props(self.root / 'system/system/build.prop', {'ro.build.version.sdk': '35'})
+        path = self.root / 'system/system/etc/init/hw/init.rc'
+        retained = '    exec -- /system_ext/xbin/xeutoolbox -n ro.secureboot.lockstate locked\n'
+        port.write(path, 'on post-fs-data\n'
+                   '    exec u:r:init:s0 root root -- /system_ext/xbin/xeutoolbox -n ro.secure 1\n'
+                   '    exec -- /system/bin/resetprop -n ro.debuggable 0\n' + retained)
+        script = self.root / 'vendor/bin/example.sh'
+        port.write(script, '#!/system/bin/sh\nresetprop ro.secure 0\nresetprop -n ro.debuggable 1\n')
+        alias = self.root / 'vendor/bin/example-link.sh'
+        port.link(alias, '/vendor/bin/example.sh')
+        port.secure_adb(self.root, REPO / 'fixes', ace16=True)
+        self.assertEqual(path.read_text(), 'on post-fs-data\n\n\n' + retained)
+        self.assertNotIn('resetprop', script.read_text())
+        self.assertTrue(alias.is_symlink() if os.name != 'nt' else alias.read_bytes().startswith(b'!<symlink>'))
+        self.assertEqual(port.remove_adb_property_resets(self.root), 0)
+        rc = (self.root / 'system/system/etc/init/hyperos_force_adb.rc').read_text()
+        for trigger in ('apex.all.ready=true', 'init.svc.bootanim=running', 'on zygote-start'):
+            self.assertIn(trigger, rc)
+        self.assertNotIn('setprop sys.usb.ffs.ready', rc)
+        self.assertNotIn('setprop sys.usb.config none', rc)
+        self.assertIn('setprop service.adb.root 0', rc)
+        self.assertIn('setenforce 1', rc)
+        blocks = re.split(r'(?m)^on ', rc)
+        bind = next(block for block in blocks if 'write /config/usb_gadget/g1/UDC' in block)
+        self.assertIn('property:sys.usb.ffs.ready=1', bind.splitlines()[0])
+        self.assertIn('property:sys.usb.config=adb', bind.splitlines()[0])
+        self.assertIn('property:sys.usb.configfs=1', bind.splitlines()[0])
+        self.assertEqual(port.properties(self.root / 'system/system/etc/prop.default')['ro.secure'], '1')
+
     def test_android15_direct_force_adb_cannot_disable_authentication(self):
         port.set_props(self.root / 'system/system/build.prop', {'ro.build.version.sdk': '35'})
         port.force_adb(self.root, REPO / 'fixes')

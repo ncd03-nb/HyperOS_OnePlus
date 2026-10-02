@@ -249,6 +249,28 @@ def force_adb(root, assets, ace16=False):
               '    setprop persist.vendor.usb.config adb\n    setprop sys.usb.config adb\n    start adbd\n')
 
 
+def remove_adb_property_resets(root):
+    """Remove standalone donor property reset commands, retaining static defaults."""
+    command = re.compile(
+        r'^[ \t]*(?:exec(?:_background)?\b[^\n]*?--\s+)?'
+        r'(?:\S*/)?(?:resetprop|xeutoolbox)\s+(?:-\S+\s+)*'
+        r'ro\.(?:secure|debuggable)\s+\S+[ \t]*(?:#.*)?$', re.M)
+    removed = 0
+    for part in PARTS:
+        for path in (root / part).rglob('*'):
+            if path.suffix not in ('.rc', '.sh') or path.is_symlink() or not path.is_file():
+                continue
+            data = path.read_bytes()
+            if data.startswith(b'!<symlink>'):
+                continue
+            text = data.decode('utf-8')
+            cleaned, count = command.subn('', text)
+            if count:
+                write(path, cleaned)
+                removed += count
+    return removed
+
+
 def secure_adb(root, assets, ace16=False):
     """Start ADB at boot while retaining authentication and shell privileges."""
     secure = {'ro.debuggable': '0', 'ro.secure': '1', 'ro.adb.secure': '1'}
@@ -262,10 +284,10 @@ def secure_adb(root, assets, ace16=False):
     set_props(root / 'vendor/build.prop', {'persist.vendor.usb.config': 'adb'})
     forced = root / 'system/system/etc/init/hyperos_force_adb.rc'
     forced.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(assets / 'hyperos_force_adb.rc', forced)
-    if sdk(root) == 35:
-        write(forced, forced.read_text('utf-8') +
-              '\non early-init\n    setenforce 1\n    setprop service.adb.root 0\n')
+    ace15 = sdk(root) == 35
+    shutil.copy2(assets / ('hyperos_early_adb_a15.rc' if ace15 else 'hyperos_force_adb.rc'), forced)
+    if ace15:
+        remove_adb_property_resets(root)
         usb = root / 'system/system/etc/init/hw/init.usb.rc'
         if usb.exists():
             write(usb, usb.read_text('utf-8').replace(' --root_seclabel=u:r:su:s0', ''))
