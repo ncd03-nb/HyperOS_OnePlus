@@ -2,10 +2,12 @@
 
 SDK35 uses the complete mi_ext/pangu assembly from Android 16, with Android 15
 stock APEX and a separate enforcing service profile. The local donor is
-mondrian `OS3.0.2.0.VMNTWXM`. The first local Android 15 build reaches
-bootanimation, then shuts down, and USB ADB does not enumerate. R3 enumerates
-USB ADB but the device reports unauthorized. A completed
-boot and hardware operation are not yet verified.
+mondrian `OS3.0.2.0.VMNTWXM`. R4 has authenticated boot ADB, with shell UID2000
+and SELinux enforcing confirmed on the device. Its system_server repeatedly
+crashes in RoleControllerService when granting the unknown permission
+`android.permission.REPOSITION_SELF_WINDOWS`; RescueParty then requests recovery.
+R5 replaces the donor Permission APEX with the signed Android 15 stock module.
+A completed R5 boot and hardware operation are not yet verified.
 
 ```bash
 ./port.sh --device OnePlusAce3V \
@@ -15,16 +17,56 @@ boot and hardware operation are not yet verified.
 ```
 
 `--stock` retains the requested hardware vendor/odm. `--apex-stock` must contain
-SDK35 system_ext and its original fs_config/file_contexts. SDK35/36 APEX mixing
-is rejected. The provided PJF110 OTA is ColorOS `15.0.0.863(CN01)`, Android 15,
+SDK35 system and system_ext with their original fs_config/file_contexts.
+For an OTA input, the CLI extracts both partitions. A tree containing only
+system_ext is insufficient. SDK35/36 APEX mixing is rejected.
+The provided PJF110 OTA is ColorOS `15.0.0.863(CN01)`, Android 15,
 security patch 2025-10-01. Its system_ext image SHA256 is
 `540b45ec29d44fd5d363f9b15303fec0238e05d84e024a9f6dad82d75d86564a`.
 Operation and image hashes were verified against the OTA manifest; the whole
 OTA signature was not verified. It supplies `com.android.compos.apex` and
 `com.android.vndk.v34.apex`.
 
-The local stock tree is
-`/mnt/d/MIO-KITCHEN-PYSIDE6-5.0.0-PREVIEW/port_hyperos3_3v/_port_work/stock_a15`.
+The system image SHA256 is
+`700e5295b56221611d24a45c7c57136819e0861e43cb19550c91184e0a4bb375`.
+Its operations and complete image also match the OTA manifest.
+
+## Permission module compatibility
+
+The modded donor ships `com.google.android.permission_compressed.apex`, module
+version 360743220. Its BROWSER role requests `REPOSITION_SELF_WINDOWS` through
+a feature flag without a minimum SDK guard. The donor Android 15 framework
+does not declare that permission. Live logs from two boots show the same
+RoleControllerService exception, including 22 repeats in the second capture.
+
+SDK35 now takes `system/system/apex/com.android.permission.apex` from the
+matching stock input, checks the APEX manifest name and version 35xxxxxxx,
+removes the donor Permission variants and their metadata, and copies the
+source ownership, mode, capabilities and SELinux context. Other system APEXes
+stay byte-identical. Source metadata and module validation happen before
+replacement. The original APEX and embedded APK bytes are copied without
+modification or resigning.
+
+The Oplus-signed controller does not inherit the Xiaomi platform `seinfo`.
+Its exact privileged-package entry in `plat_seapp_contexts` therefore uses
+`user=_app isPrivApp=true name=com.android.permissioncontroller`, matching the
+same selection pattern already used for Google's controller. The existing
+`permissioncontroller_app` domain, data type and MLS level are retained.
+This adds no policy allow rules and does not grant platform UID or shell root.
+
+The verified PJF110 module is version 352090000, SHA256
+`23407e41a3f7964c6ffd65692b716c15feaac11d50fb69643707858e3dc8f44e`.
+Its PermissionController is `com.android.permissioncontroller` 15.02.019,
+minimum/target SDK35, and its role resources omit `REPOSITION_SELF_WINDOWS`.
+The APK and APEX container signatures verify, as does the APEX payload's
+SHA256_RSA4096 signature and hashtree. This checks the copied module's
+integrity; the entire OTA signature has not been verified.
+
+The ColorOS PermissionController has OEM UI code; permission dialogs and OEM
+dependencies still need device verification. Existing DSU userdata can also
+retain newer APEX updates or package state. Inspect the active Permission
+module and fresh boot logs if the old module remains active; this build does
+not wipe userdata or disable RescueParty.
 
 ## Security and setup
 

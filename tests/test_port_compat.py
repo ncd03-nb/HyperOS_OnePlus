@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import zipfile
 from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
@@ -21,6 +22,11 @@ def fixture(root, sdk=36):
     files = {
         'system/system/build.prop': f'ro.build.version.sdk={sdk}\n',
         'system/system/bin/app_process64': 'fixture ELF',
+        'system/system/etc/selinux/plat_seapp_contexts':
+            'user=_app isPrivApp=true name=com.google.android.permissioncontroller domain=permissioncontroller_app type=privapp_data_file levelFrom=all\n'
+            'user=_app seinfo=platform isPrivApp=true name=com.android.permissioncontroller domain=permissioncontroller_app type=privapp_data_file levelFrom=all\n'
+            'user=_app seinfo=platform domain=platform_app type=app_data_file levelFrom=user\n',
+        'system/system/apex/com.google.android.permission_compressed.apex': 'donor permission',
         'product/etc/build.prop': f'ro.product.build.version.sdk={sdk}\n',
         'mi_ext/etc/build.prop': 'ro.product.mod_device=peridot\nro.mi.os.version.name=OS3.0\n',
         'mi_ext/system/bin/moved-service': 'executable',
@@ -45,6 +51,12 @@ def fixture(root, sdk=36):
     }
     for rel, value in files.items():
         port.write(root / rel, value)
+    if sdk == 35:
+        # Structurally valid APEX fixture; no claim of a test signature.
+        with zipfile.ZipFile(root / 'system/system/apex/com.android.permission.apex', 'w') as archive:
+            archive.writestr('apex_manifest.pb', b'\x0a\x16com.android.permission\x10\x90\xef\xf1\xa7\x01')
+            archive.writestr('apex_pubkey', b'fixture public key')
+            archive.writestr('apex_payload.img', b'fixture payload')
     for part in (*port.PARTS, 'mi_ext'):
         paths = [root / part, *(root / part).rglob('*')]
         port.write(root / 'config' / (part + '_fs_config'), '/ 0 0 0755\n' + ''.join(
@@ -74,6 +86,56 @@ class PortFlowTests(unittest.TestCase):
         self.assertEqual(port.donor_name(self.root), 'mondrian')
         self.assertEqual(port.properties(self.root / 'product/etc/build.prop')['ro.product.mod_device'], 'mondrian_tw_global')
 
+    def test_a15_permission_replacement_preserves_signed_bytes_and_metadata(self):
+        port.set_props(self.root / 'system/system/build.prop', {'ro.build.version.sdk': '35'})
+        stock = Path(self.tmp.name) / 'stock15'
+        fixture(stock, 35)
+        relative = 'system/system/apex/com.android.permission.apex'
+        meta = port.Metadata(stock, 'system')
+        meta.fs[relative] = ['0', '2000', '0640', 'capabilities=0x0']
+        meta.ctx[relative] = ['u:object_r:fixture_apex_file:s0']
+        meta.save()
+        other = self.root / 'system/system/apex/com.android.unrelated.apex'
+        port.write(other, 'keep original module')
+        expected = (stock / relative).read_bytes()
+        seapp = self.root / 'system/system/etc/selinux/plat_seapp_contexts'
+        previous = seapp.read_text()
+        result = port.replace_permission_apex_a15(self.root, stock)
+        self.assertEqual((self.root / relative).read_bytes(), expected)
+        self.assertEqual(other.read_text(), 'keep original module')
+        self.assertEqual(result['removed_donor_variants'], ['com.google.android.permission_compressed.apex'])
+        actual = port.Metadata(self.root, 'system')
+        self.assertEqual(actual.fs[relative], meta.fs[relative])
+        self.assertEqual(actual.ctx[relative], meta.ctx[relative])
+        expected_mapping = previous.replace('seinfo=platform isPrivApp=true name=com.android.permissioncontroller',
+                                            'isPrivApp=true name=com.android.permissioncontroller')
+        self.assertEqual(seapp.read_text(), expected_mapping)
+        self.assertEqual(result['stock_privileged_controller_domain'], 'permissioncontroller_app')
+        self.assertNotIn('system/system/apex/com.google.android.permission_compressed.apex', actual.fs)
+        self.assertNotIn('system/system/apex/com.google.android.permission_compressed.apex', actual.ctx)
+        self.assertEqual(port.replace_permission_apex_a15(self.root, stock)['removed_donor_variants'], [])
+
+    def test_a15_permission_rejects_missing_or_wrong_module_before_mutation(self):
+        port.set_props(self.root / 'system/system/build.prop', {'ro.build.version.sdk': '35'})
+        stock = Path(self.tmp.name) / 'stock15'
+        fixture(stock, 35)
+        source = stock / 'system/system/apex/com.android.permission.apex'
+        donor = self.root / 'system/system/apex/com.google.android.permission_compressed.apex'
+        before = donor.read_bytes()
+        for manifest in (b'\x0a\x07invalid\x10\x01',
+                         b'\x0a\x16com.android.permission\x10\xb4\x82\x82\xac\x01'):
+            with zipfile.ZipFile(source, 'w') as archive:
+                archive.writestr('apex_manifest.pb', manifest)
+                archive.writestr('apex_pubkey', 'fixture')
+                archive.writestr('apex_payload.img', 'fixture')
+            with self.assertRaisesRegex(ValueError, 'version 35'):
+                port.replace_permission_apex_a15(self.root, stock)
+            self.assertEqual(donor.read_bytes(), before)
+        source.unlink()
+        with self.assertRaisesRegex(ValueError, 'must include system and system_ext'):
+            port.replace_permission_apex_a15(self.root, stock)
+        self.assertEqual(donor.read_bytes(), before)
+
     def test_android15_keeps_enforcing_secure_shell_even_with_legacy_force_flag(self):
         port.set_props(self.root / 'system/system/build.prop', {'ro.build.version.sdk': '35'})
         port.write(self.root / 'vendor/etc/selinux/vendor_sepolicy.cil', '(type vendor_fixture)\n')
@@ -87,6 +149,8 @@ class PortFlowTests(unittest.TestCase):
         compile_mock.assert_called_once_with(self.root, 'secilc', enforcing=True)
         self.assertFalse(report['force_adb'])
         self.assertTrue(report['secure_boot_adb'])
+        self.assertEqual(report['permission_apex']['version'], 352090000)
+        self.assertFalse((self.root / 'system/system/apex/com.google.android.permission_compressed.apex').exists())
         props = port.properties(self.root / 'system/system/etc/prop.default')
         self.assertEqual([props[k] for k in ('ro.debuggable', 'ro.secure', 'ro.adb.secure')], ['0', '1', '1'])
         init = (self.root / 'system/system/etc/init/ace3v-port.rc').read_text()

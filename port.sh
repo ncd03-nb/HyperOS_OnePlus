@@ -3,7 +3,7 @@
 #   ./port.sh --stock <stock-rom> --hyperos <hyperos-rom> [--device <profile>]
 # Inputs: URL, zip, payload.bin or an unpacked directory.
 # Extracted trees require config/*_fs_config and config/*_file_contexts.
-# --apex-stock <ROM/tree> supplies Android-matched system_ext APEX for Ace 3V SDK35/36.
+# --apex-stock supplies matching system_ext APEX (and system Permission APEX on SDK35).
 # SDK35 always keeps SELinux enforcing and boot ADB authenticated (shell UID2000).
 # SDK36 starts ADB securely by default; --force-adb enables its development mode.
 # --assemble-only performs assembly and policy compilation, skipping image packing.
@@ -468,14 +468,17 @@ APEX_ROOT=""
 if [ "$DEVICE" = "OnePlusAce3V" ] && [[ "$DONOR_SDK" = "35" || "$DONOR_SDK" = "36" ]]; then
     ACE_FULL=1
     load_device_config "$HERE/devices/$DEVICE/android-$DONOR_SDK/device.conf"
-    # APEX comes from a separate, Android-matched system_ext; vendor/odm keep
-    # the requested hardware base. Never overwrite the donor's system_ext here.
+    # APEX comes from an Android-matched stock tree; SDK35 also needs Permission
+    # from system. Vendor/odm keep the requested hardware base.
     APEX_SRC="$STOCK_SRC"
     [ -z "$APEX_STOCK" ] || APEX_SRC="$(resolve_input "$APEX_STOCK" "$DL" apex_stock)"
-    get_images "$APEX_SRC" "$DL/apex_stock_img" apex_stock system_ext
+    APEX_PARTS=(system_ext)
+    [ "$DONOR_SDK" != "35" ] || APEX_PARTS+=(system)
+    get_images "$APEX_SRC" "$DL/apex_stock_img" apex_stock "${APEX_PARTS[@]}"
     APEX_ROOT="$WORK/_stock_apex"
     mkdir -p "$APEX_ROOT"
     unpack_erofs "$IMG_system_ext" "$APEX_ROOT"
+    [ "$DONOR_SDK" != "35" ] || unpack_erofs "$IMG_system" "$APEX_ROOT"
     [ "$("$PY" "$HERE/lib/port_compat.py" sdk "$APEX_ROOT")" = "$DONOR_SDK" ] || die "stock APEX SDK does not match donor SDK $DONOR_SDK; supply a matching --apex-stock"
     command -v secilc >/dev/null || die "Ace 3V SDK35/36 requires secilc (run requirements.sh)"
     if [ "$DONOR_SDK" = "35" ]; then
