@@ -3,8 +3,9 @@
 #   ./port.sh --stock <stock-rom> --hyperos <hyperos-rom> [--device <profile>]
 # Inputs: URL, zip, payload.bin or an unpacked directory.
 # Extracted trees require config/*_fs_config and config/*_file_contexts.
-# --apex-stock <ROM/tree> supplies Android-matched system_ext APEX for Ace 3V SDK36.
-# ADB starts at boot securely on Ace 3V SDK36; --force-adb makes it insecure/root.
+# --apex-stock <ROM/tree> supplies Android-matched system_ext APEX for Ace 3V SDK35/36.
+# SDK35 always keeps SELinux enforcing and boot ADB authenticated (shell UID2000).
+# SDK36 starts ADB securely by default; --force-adb enables its development mode.
 # --assemble-only performs assembly and policy compilation, skipping image packing.
 
 set -euo pipefail
@@ -40,7 +41,7 @@ quiet_run() {
 
 # args
 DEVICE=""; STOCK=""; HOS4=""; WORK="work"; OUT="out"; RES="$HERE/RES"
-NAME=""; KEEP_WORK=0; APEX_STOCK=""; FORCE_ADB="${FORCE_ADB:-0}"; ASSEMBLE_ONLY=0
+NAME=""; KEEP_WORK=0; APEX_STOCK=""; ADB_KEY=""; FORCE_ADB="${FORCE_ADB:-0}"; ASSEMBLE_ONLY=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --device) DEVICE="$2"; shift 2;;
@@ -53,6 +54,7 @@ while [ $# -gt 0 ]; do
         --keep-work) KEEP_WORK=1; shift;;
         --apex-stock) APEX_STOCK="$2"; shift 2;;
         --force-adb) FORCE_ADB=1; shift;;
+        --adb-key) ADB_KEY="$2"; shift 2;;
         --assemble-only) ASSEMBLE_ONLY=1; shift;;
         -h|--help) grep '^#' "$0" | sed 's/^# \{0,1\}//'; exit 0;;
         *) die "unknown arg: $1";;
@@ -461,11 +463,11 @@ unpack_erofs "$IMG_product" "$WORK"
 unpack_erofs "$IMG_mi_ext" "$WORK"
 MIEXT="$WORK/mi_ext"
 DONOR_SDK="$("$PY" "$HERE/lib/port_compat.py" sdk "$WORK")"
-ACE16=0
+ACE_FULL=0
 APEX_ROOT=""
-if [ "$DEVICE" = "OnePlusAce3V" ] && [ "$DONOR_SDK" = "36" ]; then
-    ACE16=1
-    load_device_config "$HERE/devices/$DEVICE/android-36/device.conf"
+if [ "$DEVICE" = "OnePlusAce3V" ] && [[ "$DONOR_SDK" = "35" || "$DONOR_SDK" = "36" ]]; then
+    ACE_FULL=1
+    load_device_config "$HERE/devices/$DEVICE/android-$DONOR_SDK/device.conf"
     # APEX comes from a separate, Android-matched system_ext; vendor/odm keep
     # the requested hardware base. Never overwrite the donor's system_ext here.
     APEX_SRC="$STOCK_SRC"
@@ -474,8 +476,11 @@ if [ "$DEVICE" = "OnePlusAce3V" ] && [ "$DONOR_SDK" = "36" ]; then
     APEX_ROOT="$WORK/_stock_apex"
     mkdir -p "$APEX_ROOT"
     unpack_erofs "$IMG_system_ext" "$APEX_ROOT"
-    [ "$("$PY" "$HERE/lib/port_compat.py" sdk "$APEX_ROOT")" = "$DONOR_SDK" ] || die "stock APEX SDK does not match donor SDK $DONOR_SDK; supply --apex-stock Android 16"
-    command -v secilc >/dev/null || die "Ace 3V Android 16 requires secilc (run requirements.sh)"
+    [ "$("$PY" "$HERE/lib/port_compat.py" sdk "$APEX_ROOT")" = "$DONOR_SDK" ] || die "stock APEX SDK does not match donor SDK $DONOR_SDK; supply a matching --apex-stock"
+    command -v secilc >/dev/null || die "Ace 3V SDK35/36 requires secilc (run requirements.sh)"
+    if [ "$DONOR_SDK" = "35" ]; then
+        command -v seinfo >/dev/null || die "Android 15 requires seinfo to verify zero permissive domains (run requirements.sh)"
+    fi
 fi
 printf '%s\n' "HyperOS / Android SDK $DONOR_SDK / OnePlus base" > "$HERE/build_info/rom_version.txt"
 notify_stage build
@@ -513,7 +518,7 @@ log "[10] product/etc/build.prop: density 600 + status bar tint"
 apply_fix "$PROD_BP" "# $SIG" product.build.prop
 
 log "[11] removing system_ext/priv-app/qcrilmsgtunnel"
-[ "$ACE16" -eq 1 ] || rm -rf "$SYSEXT/priv-app/qcrilmsgtunnel"
+[ "$ACE_FULL" -eq 1 ] || rm -rf "$SYSEXT/priv-app/qcrilmsgtunnel"
 
 # SHARED_DEVICE_CAMERA_SOURCE
 CAMERA_SOURCE="${DEV_camera_source:-gdrive}"
@@ -573,7 +578,7 @@ fi
 
 # device folder: displayconfig + device_features overlay, then scalar overrides
 DDIR="$HERE/devices/$DEVICE"
-[ "$ACE16" -eq 0 ] || DDIR="$DDIR/android-36"
+[ "$ACE_FULL" -eq 0 ] || DDIR="$DDIR/android-$DONOR_SDK"
 [ "${AUTO_PROFILE:-0}" -eq 1 ] && DDIR=""
 log "[DEVICE] ${DEV_name:-$DEVICE} ($DEVICE)"
 if [ -d "$DDIR/displayconfig" ]; then
@@ -585,7 +590,7 @@ elif [ "${AUTO_PROFILE:-0}" -eq 1 ] && [ -d "$VENDOR/etc/displayconfig" ]; then
     cp -a "$VENDOR/etc/displayconfig/." "$WORK/product/etc/displayconfig/"
 fi
 DEVNAME="$(grep -m1 -E '^ro\.product\.(vendor\.)?device=' "$VENDOR/build.prop" 2>/dev/null | cut -d= -f2 | tr -d '[:space:]')"
-if [ "$ACE16" -eq 0 ] && [ -f "$DDIR/device_features.xml" ] && [ -n "$DEVNAME" ]; then
+if [ "$ACE_FULL" -eq 0 ] && [ -f "$DDIR/device_features.xml" ] && [ -n "$DEVNAME" ]; then
     mkdir -p "$WORK/product/etc/device_features"
     cp "$DDIR/device_features.xml" "$WORK/product/etc/device_features/$DEVNAME.xml"
     log "    device_features -> $DEVNAME.xml"
@@ -633,6 +638,7 @@ prop_set "$ODM/build.prop" "ro.product.odm.marketname" "${DEV_marketname:-}"
 # Shared, version-aware finishing pass; no device-side test/log wrappers.
 COMPAT_ARGS=(finish "$WORK" --device "$DEVICE")
 [ -z "$APEX_ROOT" ] || COMPAT_ARGS+=(--apex-stock "$APEX_ROOT")
+[ -z "$ADB_KEY" ] || COMPAT_ARGS+=(--adb-key "$ADB_KEY")
 case "$FORCE_ADB" in 1|true|yes|on) COMPAT_ARGS+=(--force-adb);; esac
 run "$PY" "$HERE/lib/port_compat.py" "${COMPAT_ARGS[@]}"
 cp "$WORK/port_compat.json" "$HERE/build_info/port_compat.json"

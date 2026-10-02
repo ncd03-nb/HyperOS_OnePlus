@@ -19,6 +19,7 @@ def fixture(root, sdk=36):
         (root / part).mkdir(parents=True)
     files = {
         'system/system/build.prop': f'ro.build.version.sdk={sdk}\n',
+        'system/system/bin/app_process64': 'fixture ELF',
         'product/etc/build.prop': f'ro.product.build.version.sdk={sdk}\n',
         'mi_ext/etc/build.prop': 'ro.product.mod_device=peridot\nro.mi.os.version.name=OS3.0\n',
         'mi_ext/system/bin/moved-service': 'executable',
@@ -63,6 +64,57 @@ class PortFlowTests(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name) / 'work'
         fixture(self.root)
+
+    def test_regional_donor_selects_existing_feature_without_rewriting_mod_device(self):
+        port.set_props(self.root / 'mi_ext/etc/build.prop', {'ro.product.mod_device': 'mondrian_tw_global'})
+        port.set_props(self.root / 'product/etc/build.prop', {'ro.product.product.name': 'mondrian'})
+        port.write(self.root / 'mi_ext/product/etc/device_features/mondrian.xml', '<features/>')
+        port.assemble(self.root, True)
+        self.assertEqual(port.donor_name(self.root), 'mondrian')
+        self.assertEqual(port.properties(self.root / 'product/etc/build.prop')['ro.product.mod_device'], 'mondrian_tw_global')
+
+    def test_android15_keeps_enforcing_secure_shell_even_with_legacy_force_flag(self):
+        port.set_props(self.root / 'system/system/build.prop', {'ro.build.version.sdk': '35'})
+        port.write(self.root / 'vendor/etc/selinux/vendor_sepolicy.cil', '(type vendor_fixture)\n')
+        port.write(self.root / 'system/system/etc/init/hw/init.usb.rc',
+                   'service adbd /system/bin/adbd --root_seclabel=u:r:su:s0\n    user root\n')
+        port.assemble(self.root, True)
+        stock = Path(self.tmp.name) / 'stock15'
+        fixture(stock, 35)
+        with patch.object(port, 'compile_policy', return_value={'permissive_types': 0}) as compile_mock:
+            report = port.finish(self.root, 'OnePlusAce3V', stock, REPO / 'fixes', adb=True)
+        compile_mock.assert_called_once_with(self.root, 'secilc', enforcing=True)
+        self.assertFalse(report['force_adb'])
+        self.assertTrue(report['secure_boot_adb'])
+        props = port.properties(self.root / 'system/system/etc/prop.default')
+        self.assertEqual([props[k] for k in ('ro.debuggable', 'ro.secure', 'ro.adb.secure')], ['0', '1', '1'])
+        init = (self.root / 'system/system/etc/init/ace3v-port.rc').read_text()
+        self.assertIn('user system', init)
+        self.assertIn('seclabel u:r:ace3v_port:s0', init)
+        self.assertNotIn('user root', init)
+        self.assertNotIn('u:r:shell:s0', init)
+        self.assertFalse((self.root / 'system/system/bin/ace3v-skip-setup.sh').exists())
+        self.assertIn('reboot_on_failure', (self.root / 'system/system/etc/init/hw/init.rc').read_text())
+        self.assertNotIn('--root_seclabel', (self.root / 'system/system/etc/init/hw/init.usb.rc').read_text())
+
+    def test_android15_direct_force_adb_cannot_disable_authentication(self):
+        port.set_props(self.root / 'system/system/build.prop', {'ro.build.version.sdk': '35'})
+        port.force_adb(self.root, REPO / 'fixes')
+        props = port.properties(self.root / 'system/system/etc/prop.default')
+        self.assertEqual(props['ro.adb.secure'], '1')
+        self.assertEqual(props['ro.secure'], '1')
+        self.assertEqual(props['ro.debuggable'], '0')
+
+    def test_android15_removes_donor_root_shell_service_but_keeps_root_daemon(self):
+        init = self.root / 'system_ext/etc/init/init.miui.ext.rc'
+        port.write(init, 'service pubcert_download /system/bin/sh /system_ext/bin/init.rootpub.sh\n'
+                   '    user root\n    seclabel u:r:shell:s0\n\n'
+                   'on property:odm.security.rootpub.trigger=1\n    start pubcert_download\n\n'
+                   'service fdpp /system_ext/bin/fdpp daemon\n    user root\n')
+        port.harden_a15_init(self.root)
+        self.assertNotIn('pubcert_download', init.read_text())
+        self.assertIn('service fdpp', init.read_text())
+        self.assertIn('user root', init.read_text())
 
     def test_android16_relocation_keeps_capabilities_context_and_full_pangu(self):
         port.assemble(self.root, True)

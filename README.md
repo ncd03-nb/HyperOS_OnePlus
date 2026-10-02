@@ -54,11 +54,12 @@ optional manual override (for example, `OnePlus13`).
 `payload.bin`, or a directory of raw `.img` files. The finished zip lands in
 `out/`.
 
-For Ace 3V HyperOS 3 Android 16, use an Android 16 stock ROM containing
+For Ace 3V HyperOS 3 Android 15 or 16, use a matching stock ROM containing
 `system_ext`, or supply it separately with `--apex-stock`. The hardware
 `vendor`/`odm` still come from `--stock`; the APEX source must match the
-donor's Android SDK. See [the Ace 3V flow](docs/ace3v-android16.md) for the
-tested donor, extracted-tree build example and remaining compatibility limits.
+donor's Android SDK. See [the Android 15 enforcing flow](docs/ace3v-android15.md)
+or [the Android 16 flow](docs/ace3v-android16.md) for the
+inputs, extracted-tree build examples and remaining compatibility limits.
 
 OPlus Android 16 links containing `downloadCheck` are resolved automatically
 to their signed CDN URL before downloading, with the same retry behaviour as
@@ -80,8 +81,9 @@ Options:
 --work <dir>          working directory (default: work)
 --res <dir>           overlay directory (default: RES)
 --keep-work           keep the working tree instead of cleaning it up
---apex-stock <input>  separate Android-matched stock ROM/tree for Ace 3V SDK36 APEX
---force-adb           change boot ADB to insecure/root mode for development
+--apex-stock <input>  separate Android-matched stock ROM/tree for Ace 3V SDK35/36 APEX
+--adb-key <public>    optionally authorize one adbkey.pub; authentication stays enabled
+--force-adb           development ADB; SDK35 always keeps authentication and UID2000
 --assemble-only       assemble and compile policy without repacking images
 ```
 

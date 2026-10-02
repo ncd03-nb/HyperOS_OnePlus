@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Versioned assembly and compatibility fixes shared by CLI and Actions."""
 import argparse
+import base64
 import ctypes
 import hashlib
 import json
@@ -47,11 +48,19 @@ def sdk(root):
 
 
 def donor_name(root):
+    features = root / 'product/etc/device_features'
+    names = {path.stem for path in features.glob('*.xml')}
+    product = properties(root / 'product/etc/build.prop').get('ro.product.product.name', '')
+    if product in names:
+        return product
     for rel in ('mi_ext/etc/build.prop', 'system/mi_ext/etc/build.prop',
                 'product/etc/build.prop', 'system/system/build.prop'):
         props = properties(root / rel)
         value = props.get('ro.product.mod_device', '').removesuffix('_global')
         if value and re.fullmatch(r'[A-Za-z0-9_-]+', value):
+            matches = [name for name in names if value == name or value.startswith(name + '_')]
+            if matches:
+                return max(matches, key=len)
             return value
     raise ValueError('Missing donor ro.product.mod_device; cannot select FeatureParser XML')
 
@@ -168,7 +177,8 @@ def assemble(root, ace16):
 
 def replace_apex(root, stock):
     if not stock or sdk(stock) != sdk(root):
-        raise ValueError('Ace 3V Android 16 requires Android 16 stock system_ext APEX; '
+        release = {35: 15, 36: 16, 37: 17}.get(sdk(root), sdk(root))
+        raise ValueError(f'Ace 3V Android {release} requires Android {release} stock system_ext APEX; '
                          'use --apex-stock with a matching ROM/extracted tree')
     source = stock / 'system_ext/apex'
     files = sorted(source.glob('*.apex')) + sorted(source.glob('*.capex'))
@@ -192,6 +202,10 @@ def replace_apex(root, stock):
 
 
 def force_adb(root, assets, ace16=False):
+    # SDK35 always uses authenticated ADB with the normal shell UID, even if
+    # an existing workflow dispatch requests the legacy development flag.
+    if sdk(root) == 35:
+        return secure_adb(root, assets, ace16=True)
     debug = {'ro.debuggable': '1', 'ro.secure': '0', 'ro.adb.secure': '0'}
     prop_default = root / 'system/system/etc/prop.default'
     if ace16:
@@ -247,11 +261,58 @@ def secure_adb(root, assets, ace16=False):
     set_props(root / 'product/etc/build.prop', {'persist.sys.usb.config': 'adb'})
     set_props(root / 'vendor/build.prop', {'persist.vendor.usb.config': 'adb'})
     forced = root / 'system/system/etc/init/hyperos_force_adb.rc'
+    forced.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(assets / 'hyperos_force_adb.rc', forced)
+    if sdk(root) == 35:
+        write(forced, forced.read_text('utf-8') +
+              '\non early-init\n    setenforce 1\n    setprop service.adb.root 0\n')
+        usb = root / 'system/system/etc/init/hw/init.usb.rc'
+        if usb.exists():
+            write(usb, usb.read_text('utf-8').replace(' --root_seclabel=u:r:su:s0', ''))
     if ace16 and (root / 'config/system_fs_config').exists():
         meta = Metadata(root, 'system')
         meta.pin('system/etc/init/hyperos_force_adb.rc')
         meta.save()
+
+
+def harden_a15_init(root):
+    """Remove donor-only root shell hooks without changing core root daemons."""
+    path = root / 'system_ext/etc/init/init.miui.ext.rc'
+    if path.exists():
+        text = path.read_text('utf-8')
+        for name in ('pubcert_download', 'rotatekey_download', 'socid_provision'):
+            text = re.sub(r'^service ' + name + r'\s[^\n]*\n(?:[ \t]+[^\n]*\n|\n)*',
+                          '', text, flags=re.M)
+            text = re.sub(r'^[ \t]+start ' + name + r'\s*\n', '', text, flags=re.M)
+        write(path, text)
+    profiler = root / 'system/system/etc/init/simpleperf.rc'
+    if profiler.exists():
+        write(profiler, '# Root boot profiling is disabled in the Android 15 enforcing port.\n')
+    ftm = root / 'vendor/etc/init/hw/vendor.oem_ftm_svc_disable.rc'
+    if ftm.exists():
+        text = ftm.read_text('utf-8')
+        text = re.sub(r'(^service console [^\n]*\n(?:(?!service |on )[^\n]*\n)*?)'
+                      r'    user root\n', r'\1    user shell\n', text, count=1, flags=re.M)
+        write(ftm, text)
+
+
+def authorize_adb(root, public_key):
+    """Optionally trust one caller-provided public key; never ship a private key."""
+    text = public_key.read_text('utf-8').strip()
+    encoded = text.split()[0]
+    if len(base64.b64decode(encoded, validate=True)) != 524:
+        raise ValueError('Expected an Android adbkey.pub RSA public key')
+    path = root / 'product/etc/security/adb_keys'
+    lines = path.read_text('utf-8').splitlines() if path.exists() else []
+    if not any(line.split() and line.split()[0] == encoded for line in lines):
+        write(path, '\n'.join(lines + [text]) + '\n')
+    link(root / 'system/adb_keys', '/product/etc/security/adb_keys')
+    for part, rel, mode in (('system', 'adb_keys', '0777'),
+                            ('product', 'etc/security/adb_keys', '0644')):
+        meta = Metadata(root, part)
+        meta.pin(rel, 'adb_keys_file', mode)
+        meta.save()
+    return hashlib.sha256(encoded.encode('ascii')).hexdigest()
 
 
 def clean_crypto(root):
@@ -271,7 +332,7 @@ def clean_crypto(root):
     return removed
 
 
-def compile_policy(root, compiler='secilc'):
+def compile_policy(root, compiler='secilc', enforcing=False):
     vendor = root / 'vendor/etc/selinux'
     version = (vendor / 'plat_sepolicy_vers.txt').read_text('utf-8').strip()
     if not re.fullmatch(r'\d+\.\d+', version):
@@ -291,16 +352,33 @@ def compile_policy(root, compiler='secilc'):
     odm_cil = root / 'odm/etc/selinux/odm_sepolicy.cil'
     if odm_cil.exists():
         inputs.append(odm_cil)
+    if enforcing:
+        # Remove domain permissiveness in every shipped CIL, including unused
+        # userdebug input, so neither the cached nor fallback policy weakens it.
+        for partition in PARTS:
+            for source in (root / partition).rglob('*.cil'):
+                original = source.read_text('utf-8')
+                cleaned = re.sub(r'\(typepermissive\s+[^\s()]+\)\s*', '', original)
+                if cleaned != original:
+                    write(source, cleaned)
     types = set(re.findall(r'\(type\s+([^\s()]+)\)',
                            '\n'.join(path.read_text('utf-8') for path in inputs)))
     policy = vendor / 'vendor_sepolicy.cil'
     text = policy.read_text('utf-8')
     existing = set(re.findall(r'\(typepermissive\s+([^\s()]+)\)', text))
-    write(policy, text.rstrip() + '\n; Ace 3V development port: permissive\n' +
-          ''.join(f'(typepermissive {name})\n' for name in sorted(types - existing)))
+    if not enforcing:
+        write(policy, text.rstrip() + '\n; Ace 3V development port: permissive\n' +
+              ''.join(f'(typepermissive {name})\n' for name in sorted(types - existing)))
     output = root / 'odm/etc/selinux/precompiled_sepolicy'
     subprocess.run([compiler, '-m', '-M', 'true', '-G', '-N', '-c', '30',
                     '-o', str(output), '-f', os.devnull, *map(str, inputs)], check=True)
+    if enforcing:
+        # -N matches Android init's runtime compilation of mixed-version CIL;
+        # it skips build-time neverallow assertions, not runtime enforcement.
+        audit = subprocess.run(['seinfo', str(output), '--permissive'], check=True,
+                               capture_output=True, text=True)
+        if not re.search(r'Permissive Types:\s+0\b', audit.stdout):
+            raise ValueError('Compiled policy contains permissive domains: ' + audit.stdout)
     for base in (vendor, output.parent):
         part = 'vendor' if base == vendor else 'odm'
         meta = Metadata(root, part)
@@ -313,8 +391,8 @@ def compile_policy(root, compiler='secilc'):
                          'vendor_configs_file' if name.endswith('_debug') else 'sepolicy_file')
             if name.endswith('_debug'):
                 meta.ctx[part + '/etc/selinux/' + name] = ['u:object_r:vendor_configs_file:s0']
-            for part, stem in (('system/system', 'plat'), ('system_ext', 'system_ext'), ('product', 'product')):
-                source = root / part / 'etc/selinux' / (stem + '_sepolicy_and_mapping.sha256')
+            for source_part, stem in (('system/system', 'plat'), ('system_ext', 'system_ext'), ('product', 'product')):
+                source = root / source_part / 'etc/selinux' / (stem + '_sepolicy_and_mapping.sha256')
                 if not source.exists():
                     raise ValueError(f'Missing donor policy digest: {source}')
                 shutil.copy2(source, base / (name + '.' + source.name))
@@ -322,23 +400,28 @@ def compile_policy(root, compiler='secilc'):
                 if part + '/' + rel not in meta.fs:
                     meta.pin(rel, 'vendor_configs_file')
         meta.save()
-    return {'mapping': version, 'policy_version': 30, 'permissive_types': len(types),
+    return {'mapping': version, 'policy_version': 30,
+            'enforcing': enforcing, 'permissive_types': 0 if enforcing else len(types),
+            'neverallow_build_checks': False,
             'sha256': hashlib.sha256(output.read_bytes()).hexdigest()}
 
 
 def finish(root, device, stock, assets, adb=False, compiler='secilc'):
+    ace15 = device == 'OnePlusAce3V' and sdk(root) == 35
     ace16 = device == 'OnePlusAce3V' and sdk(root) == 36
+    ace_full = ace15 or ace16
     report = {'device': device, 'donor_sdk': sdk(root), 'ace3v_android16': ace16,
-              'force_adb': adb, 'secure_boot_adb': ace16 and not adb,
+              'ace3v_android15': ace15,
+              'force_adb': adb and not ace15, 'secure_boot_adb': ace15 or (ace16 and not adb),
               'crypto_log_wrapper': False}
     # The replacement Provision APK must never use donor/ref Android 13 JNI/oat.
     provision = root / 'system_ext/priv-app/Provision'
     if provision.exists():
         for folder in ('oat', 'lib'):
             shutil.rmtree(provision / folder, ignore_errors=True)
-    if ace16:
+    if ace_full:
         report['apex'] = replace_apex(root, stock)
-        profile = assets.parent / 'devices/OnePlusAce3V/android-36'
+        profile = assets.parent / f'devices/OnePlusAce3V/android-{sdk(root)}'
         name = donor_name(root)
         feature = root / 'product/etc/device_features' / (name + '.xml')
         xml = ET.parse(feature)
@@ -384,14 +467,35 @@ def finish(root, device, stock, assets, adb=False, compiler='secilc'):
             shutil.rmtree(root / rel, ignore_errors=True)
         (root / 'product/overlay/Nothings.Provision.apk').unlink(missing_ok=True)
         # RES supplies only the minimal Provision APK. Remove original native/cache assets.
-        for rel in ('system/system/bin/ace3v-skip-setup.sh',
+        payloads = ('system/system/bin/ace3v-skip-setup.sh',
                     'system/system/etc/init/ace3v-port.rc',
-                    'system/system/framework/ace3v-hardware.jar'):
+                    'system/system/framework/ace3v-hardware.jar') if ace16 else (
+                    'system/system/etc/init/ace3v-port.rc',
+                    'system/system/framework/ace3v-hardware.jar')
+        for rel in payloads:
             dest = root / rel
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(profile / 'files' / rel, dest)
         meta = Metadata(root, 'system')
-        meta.pin('system/bin/ace3v-skip-setup.sh', 'shell_exec', '0755')
+        if ace16:
+            meta.pin('system/bin/ace3v-skip-setup.sh', 'shell_exec', '0755')
+        else:
+            # Native app_process launcher, running as system (1000) in its own
+            # domain. Neither setup provisioning nor the slider uses a root shell.
+            launcher = root / 'system/system/bin/ace3v-hardware'
+            shutil.copy2(root / 'system/system/bin/app_process64', launcher)
+            meta.pin('system/bin/ace3v-hardware', 'ace3v_port_exec', '0755')
+            contexts = root / 'system/system/etc/selinux/plat_file_contexts'
+            if contexts.exists():
+                text = contexts.read_text('utf-8')
+                if '/system/bin/ace3v-hardware ' not in text:
+                    write(contexts, text.rstrip() +
+                          '\n/system/bin/ace3v-hardware -- u:object_r:ace3v_port_exec:s0\n')
+            (root / 'system/system/bin/ace3v-skip-setup.sh').unlink(missing_ok=True)
+            cil = root / 'vendor/etc/selinux/vendor_sepolicy.cil'
+            marker = '\n; Ace 3V Android 15 service policy\n'
+            write(cil, cil.read_text('utf-8').split(marker)[0].rstrip() + marker +
+                  (profile / 'port.cil').read_text('utf-8'))
         meta.pin('system/etc/init/ace3v-port.rc')
         meta.pin('system/framework/ace3v-hardware.jar')
         meta.save()
@@ -404,13 +508,21 @@ def finish(root, device, stock, assets, adb=False, compiler='secilc'):
             odm_meta.ctx[key] = ['u:object_r:vendor_configs_file:s0' if rel.startswith('etc/')
                                  else 'u:object_r:vendor_file:s0']
         odm_meta.save()
-        report['boringssl_reboot_guards_removed'] = clean_crypto(root)
-        report['boringssl_services_with_suppressed_guards'] = sum(
-            len(re.findall(r'^service boringssl_self_test\w+ ', (root / relative).read_text('utf-8'), re.M))
-            for relative in ('system/system/etc/init/hw/init.rc', 'vendor/etc/init/boringssl_self_test.rc'))
-        report['boringssl_tests'] = 'Original binaries retained; reboot guards suppressed for Ace 3V SDK36'
-        report['selinux'] = compile_policy(root, compiler)
-    if adb:
+        if ace16:
+            report['boringssl_reboot_guards_removed'] = clean_crypto(root)
+            report['boringssl_services_with_suppressed_guards'] = sum(
+                len(re.findall(r'^service boringssl_self_test\w+ ', (root / relative).read_text('utf-8'), re.M))
+                for relative in ('system/system/etc/init/hw/init.rc', 'vendor/etc/init/boringssl_self_test.rc'))
+            report['boringssl_tests'] = 'Original binaries retained; reboot guards suppressed for Ace 3V SDK36'
+            report['selinux'] = compile_policy(root, compiler)
+        else:
+            report['boringssl_reboot_guards_removed'] = 0
+            report['boringssl_tests'] = 'Original binaries and reboot guards retained'
+            report['selinux'] = compile_policy(root, compiler, enforcing=True)
+    if ace15:
+        harden_a15_init(root)
+        secure_adb(root, assets, ace16=True)
+    elif adb:
         force_adb(root, assets, ace16=ace16)
     elif ace16:
         secure_adb(root, assets, ace16=True)
@@ -426,15 +538,20 @@ def main():
     parser.add_argument('--apex-stock', type=Path)
     parser.add_argument('--force-adb', action='store_true')
     parser.add_argument('--secilc', default='secilc')
+    parser.add_argument('--adb-key', type=Path, help='Optional adbkey.pub to authorize boot ADB')
     args = parser.parse_args()
     if args.stage == 'sdk':
         print(sdk(args.work))
     elif args.stage == 'assemble':
-        assemble(args.work, args.device == 'OnePlusAce3V' and sdk(args.work) == 36)
+        assemble(args.work, args.device == 'OnePlusAce3V' and sdk(args.work) in (35, 36))
     else:
         assets = Path(__file__).resolve().parent.parent / 'fixes'
-        print(json.dumps(finish(args.work, args.device, args.apex_stock, assets,
-                               args.force_adb, args.secilc), indent=2))
+        report = finish(args.work, args.device, args.apex_stock, assets,
+                        args.force_adb, args.secilc)
+        if args.adb_key:
+            report['authorized_adb_public_key_sha256'] = authorize_adb(args.work, args.adb_key)
+            write(args.work / 'port_compat.json', json.dumps(report, indent=2) + '\n')
+        print(json.dumps(report, indent=2))
 
 
 if __name__ == '__main__':

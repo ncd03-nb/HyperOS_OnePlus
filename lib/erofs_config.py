@@ -88,6 +88,7 @@ def sync_config(work, part):
 
     def ensure(rel, is_dir):
         nonlocal added_fs, added_fc
+        rel = rel.replace(os.sep, '/')
         fs_key = "%s/%s" % (part, rel) if rel else part
         path = os.path.join(part_dir, rel)
         is_link = os.path.islink(path)
