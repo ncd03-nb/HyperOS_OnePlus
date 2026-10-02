@@ -1,3 +1,4 @@
+import base64
 import os
 from pathlib import Path
 import re
@@ -110,7 +111,8 @@ class PortFlowTests(unittest.TestCase):
         alias = self.root / 'vendor/bin/example-link.sh'
         port.link(alias, '/vendor/bin/example.sh')
         port.secure_adb(self.root, REPO / 'fixes', ace16=True)
-        self.assertEqual(path.read_text(), 'on post-fs-data\n\n\n\n' + retained)
+        self.assertEqual(path.read_text(), 'on post-fs-data\n\n\n'
+                         '    exec -- /system_ext/xbin/xeutoolbox -n ro.secureboot.lockstate locked\n' + retained)
         self.assertNotIn('resetprop', script.read_text())
         self.assertTrue(alias.is_symlink() if os.name != 'nt' else alias.read_bytes().startswith(b'!<symlink>'))
         self.assertEqual(port.remove_adb_property_resets(self.root), 0)
@@ -128,7 +130,7 @@ class PortFlowTests(unittest.TestCase):
         self.assertIn('property:sys.usb.configfs=1', bind.splitlines()[0])
         self.assertEqual(port.properties(self.root / 'system/system/etc/prop.default')['ro.secure'], '1')
 
-    def test_android15_removes_all_toolbuild_boot_resets_without_touching_hardware(self):
+    def test_android15_preserves_toolbuild_boot_resets_and_removes_only_adb_security(self):
         values = [('boot.vbmeta.device_state', 'locked'), ('boot.verifiedbootstate', 'green'),
                   ('secureboot.lockstate', 'locked'), ('boot.flash.locked', '1'),
                   ('secure', '1'), ('debuggable', '0'), ('boot.vbmeta.avb_version', '1.3'),
@@ -140,9 +142,36 @@ class PortFlowTests(unittest.TestCase):
         port.write(path, 'on post-fs-data\n' + ''.join(
             f'    exec u:r:init:s0 root root -- /system_ext/xbin/xeutoolbox -n ro.{key} {value}\n'
             for key, value in values) + hardware)
-        self.assertEqual(port.remove_adb_property_resets(self.root), 13)
-        self.assertEqual(path.read_text(), 'on post-fs-data\n' + '\n' * 13 + hardware)
+        self.assertEqual(port.remove_adb_property_resets(self.root), 4)
+        expected = 'on post-fs-data\n' + ''.join(
+            '\n' if key in ('secure', 'debuggable') else
+            f'    exec u:r:init:s0 root root -- /system_ext/xbin/xeutoolbox -n ro.{key} {value}\n'
+            for key, value in values) + hardware
+        self.assertEqual(path.read_text(), expected)
         self.assertEqual(port.remove_adb_property_resets(self.root), 0)
+
+    def test_adb_public_key_is_regular_file_readable_without_following_symlinks(self):
+        # Test transport/storage, not RSA verification; no personal key fixture.
+        encoded = base64.b64encode(bytes(524)).decode('ascii')
+        public_key = Path(self.tmp.name) / 'test-adbkey.pub'
+        port.write(public_key, encoded + ' test-host\n')
+        key = self.root / 'system/adb_keys'
+        port.link(key, '/product/etc/security/adb_keys')
+        for _ in range(2):
+            port.authorize_adb(self.root, public_key)
+        self.assertFalse(key.is_symlink())
+        self.assertFalse(key.read_bytes().startswith(b'!<symlink>'))
+        self.assertEqual(key.read_text(), encoded + ' test-host\n')
+        self.assertEqual(key.read_bytes(), (self.root / 'product/etc/security/adb_keys').read_bytes())
+        meta = port.Metadata(self.root, 'system')
+        self.assertEqual(meta.fs['system/adb_keys'], ['0', '0', '0644'])
+        self.assertEqual(meta.ctx['system/adb_keys'], ['u:object_r:adb_keys_file:s0'])
+        if os.name != 'nt':
+            fd = os.open(key, os.O_RDONLY | os.O_NOFOLLOW)
+            try:
+                self.assertEqual(os.read(fd, 4096), key.read_bytes())
+            finally:
+                os.close(fd)
 
     def test_android15_restarts_adbd_only_after_vendor_gadget_event(self):
         rc = (REPO / 'fixes/hyperos_early_adb_a15.rc').read_text()

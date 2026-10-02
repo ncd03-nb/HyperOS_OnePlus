@@ -250,18 +250,11 @@ def force_adb(root, assets, ace16=False):
 
 
 def remove_adb_property_resets(root):
-    """Keep security defaults and the target bootloader's actual boot state.
-
-    Toolbuild appends synchronous ResetProp execs at post-fs-data, including
-    donor vbmeta values and duplicate security resets. Those values do not
-    describe the Ace 3V boot chain. Leave unrelated hardware resets intact.
-    """
+    """Remove runtime ADB security resets; preserve other donor property mods."""
     command = re.compile(
         r'^[ \t]*(?:exec(?:_background)?\b[^\n]*?--\s+)?'
         r'(?:\S*/)?(?:resetprop|xeutoolbox)\s+(?:-\S+\s+)*'
-        r'ro\.(?:secure|debuggable|adb\.secure|secureboot\.lockstate|'
-        r'boot\.(?:verifiedbootstate|flash\.locked|vbmeta\.(?:device_state|'
-        r'avb_version|hash_alg|size|digest)))\s+\S+[ \t]*(?:#.*)?$', re.M)
+        r'ro\.(?:secure|debuggable|adb\.secure)\s+\S+[ \t]*(?:#.*)?$', re.M)
     removed = 0
     for part in PARTS:
         for path in (root / part).rglob('*'):
@@ -335,8 +328,12 @@ def authorize_adb(root, public_key):
     lines = path.read_text('utf-8').splitlines() if path.exists() else []
     if not any(line.split() and line.split()[0] == encoded for line in lines):
         write(path, '\n'.join(lines + [text]) + '\n')
-    link(root / 'system/adb_keys', '/product/etc/security/adb_keys')
-    for part, rel, mode in (('system', 'adb_keys', '0777'),
+    # libadbd_auth calls ReadFileToString with follow_symlinks=false, which
+    # opens /adb_keys with O_NOFOLLOW. A symlink cannot authorize this host.
+    root_key = root / 'system/adb_keys'
+    root_key.unlink(missing_ok=True)
+    write(root_key, path.read_text('utf-8'))
+    for part, rel, mode in (('system', 'adb_keys', '0644'),
                             ('product', 'etc/security/adb_keys', '0644')):
         meta = Metadata(root, part)
         meta.pin(rel, 'adb_keys_file', mode)

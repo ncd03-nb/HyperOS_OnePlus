@@ -3,7 +3,8 @@
 SDK35 uses the complete mi_ext/pangu assembly from Android 16, with Android 15
 stock APEX and a separate enforcing service profile. The local donor is
 mondrian `OS3.0.2.0.VMNTWXM`. The first local Android 15 build reaches
-bootanimation, then shuts down, and USB ADB does not enumerate. A completed
+bootanimation, then shuts down, and USB ADB does not enumerate. R3 enumerates
+USB ADB but the device reports unauthorized. A completed
 boot and hardware operation are not yet verified.
 
 ```bash
@@ -28,19 +29,24 @@ The local stock tree is
 ## Security and setup
 
 - ADB starts at boot with `ro.secure=1`, `ro.adb.secure=1`, `ro.debuggable=0`
-  and normal privilege dropping to shell UID2000. The daemon starts with its
-  standard root UID to initialize USB, then drops privileges. `--force-adb`
+  and normal privilege dropping to shell UID2000. Init launches the daemon
+  with its standard root UID; adbd drops privileges before USB initialization. `--force-adb`
   cannot enable insecure/root ADB on SDK35. Optional `--adb-key adbkey.pub`
   authorizes a caller-provided public key while retaining authentication.
-  No personal key is committed.
+  `/adb_keys` is a regular root-owned 0644 file labeled `adb_keys_file`.
+  Android 15's [libadbd_auth](https://android.googlesource.com/platform/frameworks/native/+/android-15.0.0_r1/libs/adbd_auth/adbd_auth.cpp)
+  reads it with [ReadFileToString's default O_NOFOLLOW](https://android.googlesource.com/platform/system/libbase/+/android-15.0.0_r1/include/android-base/file.h), so the old symlink
+  to `/product/etc/security/adb_keys` could not load the trusted key. R4
+  replaces that symlink with the public-key file. No personal key is committed.
 - SDK35 removes standalone `resetprop`/`xeutoolbox` calls changing `ro.secure`,
-  `ro.debuggable`, `ro.adb.secure` and donor boot-state overrides from extracted
+  `ro.debuggable` or `ro.adb.secure` from extracted
   init/scripts. Toolbuild's ResetProp package adds 13 synchronous calls to
   `post-fs-data`: four security resets and nine locked/green/vbmeta overrides.
-  The latter describe the donor's vbmeta, rather than the Ace 3V boot chain.
-  R2 removed only the four security resets; R3 removes all 13. The target's
-  real bootloader properties and static secure defaults remain. Unrelated
-  hardware property resets are preserved. Binary SHA256, executable metadata
+  R2 removed only the four security resets; R3 removed all 13. At the user's
+  request R4 restores the nine donor boot-state/vbmeta overrides, preserving
+  non-ADB ResetProp modifications and keeping the four security resets removed.
+  Static secure defaults remain. Unrelated hardware property resets are
+  preserved. Binary SHA256, executable metadata
   and init execute permission matched the donor; no executable-label defect
   was found. ResetProp has not been established as the shutdown cause.
   Its separate early ADB recipe starts the APEX-provided daemon when APEXes are
