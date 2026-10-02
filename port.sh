@@ -4,7 +4,7 @@
 # Inputs: URL, zip, payload.bin or an unpacked directory.
 # Extracted trees require config/*_fs_config and config/*_file_contexts.
 # --apex-stock <ROM/tree> supplies Android-matched system_ext APEX for Ace 3V SDK36.
-# --force-adb enables early ADB (automatic for Ace 3V SDK36).
+# ADB starts at boot securely on Ace 3V SDK36; --force-adb makes it insecure/root.
 # --assemble-only performs assembly and policy compilation, skipping image packing.
 
 set -euo pipefail

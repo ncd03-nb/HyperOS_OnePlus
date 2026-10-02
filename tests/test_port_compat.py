@@ -116,7 +116,7 @@ class PortFlowTests(unittest.TestCase):
         self.assertFalse((self.root / 'system_ext/apex/com.android.art.compatible.apex').exists())
         self.assertEqual(port.Metadata(self.root, 'system_ext').fs['system_ext/apex/com.android.compos.apex'], ['0', '0', '0640'])
 
-    def test_clean_finish_has_setup_adb_and_original_crypto_services(self):
+    def test_clean_finish_has_secure_adb_and_original_crypto_services(self):
         port.assemble(self.root, True)
         stock = Path(self.tmp.name) / 'stock'
         fixture(stock)
@@ -129,15 +129,37 @@ class PortFlowTests(unittest.TestCase):
         self.assertIn('service boringssl_self_test64 /system/bin/boringssl_self_test64', init)
         self.assertNotIn('reboot_on_failure', init)
         self.assertNotIn('ace3v-crypto-test', init)
-        self.assertNotIn('xeutoolbox -n ro.debuggable 0', init)
+        self.assertIn('xeutoolbox -n ro.debuggable 0', init)
         self.assertFalse((self.root / 'system_ext/priv-app/Provision/oat').exists())
         self.assertFalse((self.root / 'system_ext/priv-app/Provision/lib').exists())
-        self.assertEqual(port.properties(self.root / 'system/system/etc/prop.default')['ro.adb.secure'], '0')
-        self.assertIn('persist.sys.ace3v.miui_debug=1', (self.root / 'system_ext/etc/init/miuserfs.rc').read_text())
+        expected = {'ro.debuggable': '0', 'ro.secure': '1', 'ro.adb.secure': '1'}
+        self.assertEqual({key: port.properties(self.root / 'system/system/etc/prop.default')[key]
+                          for key in expected}, expected)
+        self.assertEqual({key: port.properties(self.root / 'system/system/build.prop')[key]
+                          for key in expected}, expected)
+        self.assertFalse(result['force_adb'])
+        self.assertTrue(result['secure_boot_adb'])
+        self.assertTrue((self.root / 'system/system/etc/init/hyperos_force_adb.rc').is_file())
+        self.assertEqual(port.properties(self.root / 'system/system/build.prop')['persist.sys.usb.config'], 'adb')
+        self.assertIn('on property:ro.debuggable=1', (self.root / 'system_ext/etc/init/miuserfs.rc').read_text())
         self.assertIn('donor_flag', (self.root / 'product/etc/device_features/peridot.xml').read_text())
         script = self.root / 'system/system/bin/ace3v-skip-setup.sh'
         self.assertNotIn(b'\r', script.read_bytes())
         self.assertEqual(port.Metadata(self.root, 'system').fs['system/system/bin/ace3v-skip-setup.sh'][2], '0755')
+
+    def test_android16_insecure_adb_requires_explicit_flag(self):
+        port.assemble(self.root, True)
+        stock = Path(self.tmp.name) / 'stock'
+        fixture(stock)
+        with patch.object(port, 'compile_policy', return_value={'compiled': True}):
+            result = port.finish(self.root, 'OnePlusAce3V', stock, REPO / 'fixes', adb=True)
+        props = port.properties(self.root / 'system/system/etc/prop.default')
+        self.assertEqual(props['ro.debuggable'], '1')
+        self.assertEqual(props['ro.secure'], '0')
+        self.assertEqual(props['ro.adb.secure'], '0')
+        self.assertTrue(result['force_adb'])
+        self.assertFalse(result['secure_boot_adb'])
+        self.assertTrue((self.root / 'system/system/etc/init/hyperos_force_adb.rc').is_file())
 
     def test_logging_wrapper_is_removed_without_removing_test(self):
         init = self.root / 'system/system/etc/init/hw/init.rc'

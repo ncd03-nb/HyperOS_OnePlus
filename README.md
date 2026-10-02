@@ -81,7 +81,7 @@ Options:
 --res <dir>           overlay directory (default: RES)
 --keep-work           keep the working tree instead of cleaning it up
 --apex-stock <input>  separate Android-matched stock ROM/tree for Ace 3V SDK36 APEX
---force-adb           force early insecure ADB; enabled automatically for Ace 3V SDK36
+--force-adb           change boot ADB to insecure/root mode for development
 --assemble-only       assemble and compile policy without repacking images
 ```
 
@@ -194,8 +194,10 @@ Then it applies the `RES/` overlays and the device overrides, regenerates the
 EROFS `fs_config` / `file_contexts`, repacks each partition, and writes the zip.
 Ace 3V SDK36 additionally moves the remaining `mi_ext` into the system image,
 moves the complete `pangu` directory, replaces `system_ext` APEX from matching
-stock, compiles the permissive development policy, and applies the setup/ADB
-compatibility flow. These changes are selected by donor SDK, not the ROM name.
+stock, compiles the compatibility policy, and applies the setup flow. ADB remains
+enabled at boot but uses authentication and drops to UID 2000; SELinux stays
+globally enforcing. Insecure/root ADB is available only through `--force-adb`.
+These changes are selected by donor SDK, not the ROM name.
 
 ## RES overlays
 

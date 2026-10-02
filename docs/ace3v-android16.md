@@ -54,11 +54,10 @@ Actions execute the same porter; there is no runner-specific source patch.
 6. Use the minimal Provision APK, remove donor/Android 13 JNI and oat/vdex,
    remove Nothings.Provision overlay and XiaomiEUExt, and run a bounded setup
    bypass after SettingsProvider starts.
-7. Enable early insecure ADB, prevent xeu init from resetting ro.debuggable /
-   ro.secure, and gate MIUI debug-only filesystem/injection branches behind
-   persist.sys.ace3v.miui_debug=1. The setting is absent by default.
-8. Compile split CIL using the stock vendor mapping version, make the
-   development policy permissive and replace precompiled policy/digests.
+7. Start ADB at boot while retaining authentication and privilege dropping to
+   UID 2000. Insecure/root ADB is an explicit `--force-adb` option only.
+8. Compile split CIL using the stock vendor mapping version, keep the global
+   SELinux runtime enforcing and replace precompiled policy/digests.
 
 The historical failure reboot reason was `boringssl-self-check-failed`.
 The booted R3 configuration suppressed six BoringSSL `reboot_on_failure`
@@ -67,8 +66,8 @@ original test binaries directly, with their original init triggers/options.
 No crypto wrapper, persistent crypto log, or test-result property is shipped.
 Suppressing the guards does not establish that all crypto checks pass or fix
 the underlying crypto compatibility issue. Android 17 and other devices keep
-their guards. This remains a development port with permissive SELinux and
-insecure ADB.
+their guards. Compatibility `typepermissive` rules remain in the compiled policy
+for boot compatibility, while the global SELinux runtime stays enforcing.
 
 `work/port_compat.json` and `build_info/port_compat.json` record the selected
 SDK, APEX hashes, policy mapping/hash and compatibility choices at build time.

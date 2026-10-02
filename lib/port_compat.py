@@ -235,6 +235,25 @@ def force_adb(root, assets, ace16=False):
               '    setprop persist.vendor.usb.config adb\n    setprop sys.usb.config adb\n    start adbd\n')
 
 
+def secure_adb(root, assets, ace16=False):
+    """Start ADB at boot while retaining authentication and shell privileges."""
+    secure = {'ro.debuggable': '0', 'ro.secure': '1', 'ro.adb.secure': '1'}
+    targets = ['system/system/build.prop']
+    if ace16 or (root / 'system/system/etc/prop.default').exists():
+        targets.insert(0, 'system/system/etc/prop.default')
+    for rel in targets:
+        set_props(root / rel, secure)
+    set_props(root / 'system/system/build.prop', {'persist.sys.usb.config': 'adb'})
+    set_props(root / 'product/etc/build.prop', {'persist.sys.usb.config': 'adb'})
+    set_props(root / 'vendor/build.prop', {'persist.vendor.usb.config': 'adb'})
+    forced = root / 'system/system/etc/init/hyperos_force_adb.rc'
+    shutil.copy2(assets / 'hyperos_force_adb.rc', forced)
+    if ace16 and (root / 'config/system_fs_config').exists():
+        meta = Metadata(root, 'system')
+        meta.pin('system/etc/init/hyperos_force_adb.rc')
+        meta.save()
+
+
 def clean_crypto(root):
     removed = 0
     for relative in ('system/system/etc/init/hw/init.rc', 'vendor/etc/init/boringssl_self_test.rc'):
@@ -310,7 +329,8 @@ def compile_policy(root, compiler='secilc'):
 def finish(root, device, stock, assets, adb=False, compiler='secilc'):
     ace16 = device == 'OnePlusAce3V' and sdk(root) == 36
     report = {'device': device, 'donor_sdk': sdk(root), 'ace3v_android16': ace16,
-              'force_adb': adb or ace16, 'crypto_log_wrapper': False}
+              'force_adb': adb, 'secure_boot_adb': ace16 and not adb,
+              'crypto_log_wrapper': False}
     # The replacement Provision APK must never use donor/ref Android 13 JNI/oat.
     provision = root / 'system_ext/priv-app/Provision'
     if provision.exists():
@@ -390,8 +410,10 @@ def finish(root, device, stock, assets, adb=False, compiler='secilc'):
             for relative in ('system/system/etc/init/hw/init.rc', 'vendor/etc/init/boringssl_self_test.rc'))
         report['boringssl_tests'] = 'Original binaries retained; reboot guards suppressed for Ace 3V SDK36'
         report['selinux'] = compile_policy(root, compiler)
-    if adb or ace16:
+    if adb:
         force_adb(root, assets, ace16=ace16)
+    elif ace16:
+        secure_adb(root, assets, ace16=True)
     write(root / 'port_compat.json', json.dumps(report, indent=2) + '\n')
     return report
 
