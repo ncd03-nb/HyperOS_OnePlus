@@ -28,6 +28,7 @@ def fixture(root, sdk=36):
             'user=_app seinfo=platform isPrivApp=true name=com.android.permissioncontroller domain=permissioncontroller_app type=privapp_data_file levelFrom=all\n'
             'user=_app seinfo=platform domain=platform_app type=app_data_file levelFrom=user\n',
         'system/system/apex/com.google.android.permission_compressed.apex': 'donor permission',
+        'system/system/apex/com.google.android.adbd_compressed.apex': 'donor adbd fixture',
         'product/etc/build.prop': f'ro.product.build.version.sdk={sdk}\n',
         'mi_ext/etc/build.prop': 'ro.product.mod_device=peridot\nro.mi.os.version.name=OS3.0\n',
         'mi_ext/system/bin/moved-service': 'executable',
@@ -72,6 +73,78 @@ class PortFlowTests(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name) / 'work'
         fixture(self.root)
+
+    def a15_assets(self):
+        repository = Path(self.tmp.name) / 'repository'
+        shutil.copytree(REPO / 'fixes', repository / 'fixes', dirs_exist_ok=True)
+        profile = repository / 'devices/OnePlusAce3V/android-35'
+        shutil.copytree(REPO / 'devices/OnePlusAce3V/android-35', profile, dirs_exist_ok=True)
+        descriptor_path = profile / 'boot_adb/profile.json'
+        descriptor = json.loads(descriptor_path.read_text())
+        descriptor['donor_sha256'] = hashlib.sha256(
+            (self.root / 'system/system/apex' / descriptor['donor_file']).read_bytes()).hexdigest()
+        port.write(descriptor_path, json.dumps(descriptor))
+        return repository / 'fixes'
+
+    def test_a15_setup_removal_cleans_metadata_and_preserves_provision(self):
+        paths = ('system/system/app/SetupWizard', 'system_ext/priv-app/SetupWizard',
+                 'product/priv-app/SetupWizard')
+        for relative in paths:
+            port.write(self.root / relative / 'SetupWizard.apk', 'wizard')
+            part = relative.split('/')[0]
+            meta = port.Metadata(self.root, part)
+            meta.pin(relative[len(part) + 1:], mode='0755')
+            meta.pin(relative[len(part) + 1:] + '/SetupWizard.apk')
+            meta.save()
+        provision = self.root / 'system_ext/priv-app/Provision/Provision.apk'
+        original = provision.read_bytes()
+        self.assertEqual(set(port.remove_a15_setupwizard(self.root)), set(paths))
+        self.assertEqual(port.remove_a15_setupwizard(self.root), [])
+        self.assertEqual(provision.read_bytes(), original)
+        for relative in paths:
+            self.assertFalse((self.root / relative).exists())
+            meta = port.Metadata(self.root, relative.split('/')[0])
+            self.assertFalse(any(key == relative or key.startswith(relative + '/')
+                                 for records in (meta.fs, meta.ctx) for key in records))
+
+    def test_noauth_adb_rejects_unknown_donor_or_tampered_asset_before_changes(self):
+        assets = self.a15_assets()
+        profile = assets.parent / 'devices/OnePlusAce3V/android-35/boot_adb'
+        before = (self.root / 'system/system/build.prop').read_bytes()
+        apex = self.root / 'system/system/apex/com.google.android.adbd_compressed.apex'
+        original = apex.read_bytes()
+        apex.write_bytes(b'unknown donor')
+        with self.assertRaisesRegex(ValueError, 'No verified'):
+            port.install_a15_noauth_adb(self.root, assets)
+        apex.write_bytes(original)
+        (profile / 'ace3v-adbd').write_bytes(b'tampered')
+        with self.assertRaisesRegex(ValueError, 'profile hash'):
+            port.install_a15_noauth_adb(self.root, assets)
+        self.assertEqual((self.root / 'system/system/build.prop').read_bytes(), before)
+        self.assertFalse((self.root / 'system/system/bin/ace3v-adbd').exists())
+
+    def test_optional_oem_bind_wait_does_not_change_required_mounts(self):
+        path = self.root / 'vendor/etc/fstab.qcom'
+        original = (
+            b'/mnt/vendor/my_product\t/my_product none ro,bind wait,nofail\r\n'
+            b'/mnt/vendor/my_region /my_region none ro,bind nofail,wait\r\n'
+            b'my_product /mnt/vendor/my_product erofs ro wait,logical,first_stage_mount\r\n'
+            b'/dev/block/userdata /data f2fs rw wait,check,formattable\r\n'
+            b'/mnt/vendor/my_carrier /my_carrier none ro,bind wait\r\n'
+            b'/mnt/vendor/my_stock /my_stock none ro,bind wait,nofail,first_stage_mount\r\n'
+            b'/mnt/vendor/other /other none ro,bind wait,nofail\r\n')
+        path.write_bytes(original)
+        self.assertEqual(port.remove_optional_oem_bind_wait(self.root),
+                         ['/mnt/vendor/my_product', '/mnt/vendor/my_region'])
+        expected = original.replace(b'ro,bind wait,nofail\r\n', b'ro,bind nofail\r\n', 1)
+        expected = expected.replace(b'ro,bind nofail,wait\r\n', b'ro,bind nofail\r\n', 1)
+        self.assertEqual(path.read_bytes(), expected)
+        self.assertEqual(port.remove_optional_oem_bind_wait(self.root), [])
+        self.assertEqual(path.read_bytes(), expected)
+
+    def test_optional_oem_bind_wait_absent_fstab_is_untouched(self):
+        self.assertEqual(port.remove_optional_oem_bind_wait(self.root), [])
+        self.assertFalse((self.root / 'vendor/etc/fstab.qcom').exists())
 
     def test_regional_donor_selects_existing_feature_without_rewriting_mod_device(self):
         port.set_props(self.root / 'mi_ext/etc/build.prop', {'ro.product.mod_device': 'mondrian_tw_global'})
@@ -169,15 +242,20 @@ class PortFlowTests(unittest.TestCase):
         port.assemble(self.root, True)
         stock = Path(self.tmp.name) / 'stock15'
         fixture(stock, 35)
-        with patch.object(port, 'compile_policy', return_value={'permissive_types': 0}) as compile_mock:
-            report = port.finish(self.root, 'OnePlusAce3V', stock, REPO / 'fixes', adb=True)
+        def compile_check(*args, **kwargs):
+            self.assertIn('(allow init adbd_exec (file (mounton)))',
+                          (self.root / 'vendor/etc/selinux/vendor_sepolicy.cil').read_text())
+            return {'permissive_types': 0}
+        with patch.object(port, 'compile_policy', side_effect=compile_check) as compile_mock:
+            report = port.finish(self.root, 'OnePlusAce3V', stock, self.a15_assets(), adb=True)
         compile_mock.assert_called_once_with(self.root, 'secilc', enforcing=True)
         self.assertFalse(report['force_adb'])
-        self.assertTrue(report['secure_boot_adb'])
+        self.assertFalse(report['secure_boot_adb'])
+        self.assertTrue(report['noauth_boot_adb'])
         self.assertTrue(report['permission_roles']['original_permission_module_preserved'])
         self.assertTrue((self.root / 'system/system/apex/com.google.android.permission_compressed.apex').exists())
         props = port.properties(self.root / 'system/system/etc/prop.default')
-        self.assertEqual([props[k] for k in ('ro.debuggable', 'ro.secure', 'ro.adb.secure')], ['0', '1', '1'])
+        self.assertEqual([props[k] for k in ('ro.debuggable', 'ro.secure', 'ro.adb.secure')], ['0', '1', '0'])
         init = (self.root / 'system/system/etc/init/ace3v-port.rc').read_text()
         self.assertIn('user system', init)
         self.assertIn('seclabel u:r:ace3v_port:s0', init)
@@ -276,13 +354,27 @@ class PortFlowTests(unittest.TestCase):
         self.assertLess(ready.index('restart adbd'), ready.index('trigger ace3v-adb-bind'))
         self.assertEqual(sum(action.count('restart adbd') for action in actions.values()), 1)
 
-    def test_android15_direct_force_adb_cannot_disable_authentication(self):
+    def test_android15_noauth_keeps_apex_privileges_and_metadata(self):
         port.set_props(self.root / 'system/system/build.prop', {'ro.build.version.sdk': '35'})
-        port.force_adb(self.root, REPO / 'fixes')
+        port.write(self.root / 'vendor/etc/selinux/vendor_sepolicy.cil', '(type fixture)\n')
+        assets = self.a15_assets()
+        apex = self.root / 'system/system/apex/com.google.android.adbd_compressed.apex'
+        original = apex.read_bytes()
+        for _ in range(2):
+            port.force_adb(self.root, assets)
         props = port.properties(self.root / 'system/system/etc/prop.default')
-        self.assertEqual(props['ro.adb.secure'], '1')
+        self.assertEqual(props['ro.adb.secure'], '0')
         self.assertEqual(props['ro.secure'], '1')
         self.assertEqual(props['ro.debuggable'], '0')
+        self.assertEqual(apex.read_bytes(), original)
+        meta = port.Metadata(self.root, 'system')
+        self.assertEqual(meta.fs['system/system/bin/ace3v-adbd'], ['0', '0', '0755'])
+        self.assertEqual(meta.ctx['system/system/bin/ace3v-adbd'], ['u:object_r:adbd_exec:s0'])
+        rc = (self.root / 'system/system/etc/init/hyperos_force_adb.rc').read_text()
+        self.assertEqual(rc.count('mount none /system/bin/ace3v-adbd /apex/com.android.adbd/bin/adbd bind'), 1)
+        self.assertNotIn('setprop service.adb.root 1', rc)
+        self.assertEqual((self.root / 'vendor/etc/selinux/vendor_sepolicy.cil').read_text().count(
+            '(allow init adbd_exec (file (mounton)))'), 1)
 
     def test_android15_removes_donor_root_shell_service_but_keeps_root_daemon(self):
         init = self.root / 'system_ext/etc/init/init.miui.ext.rc'

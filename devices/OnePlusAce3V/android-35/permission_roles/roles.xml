@@ -69,7 +69,7 @@
     <permission minSdkVersion="33" name="android.permission.ADD_ALWAYS_UNLOCKED_DISPLAY" />
     <permission featureFlag="android.companion.virtualdevice.flags.Flags.activityControlApi" name="android.permission.SUBSCRIBE_TO_KEYGUARD_LOCKED_STATE" />
   </permission-set>
-  <role behavior="AssistantRoleBehavior" defaultHolders="config_defaultAssistant" description="@*com.android.permissioncontroller:string/role_assistant_description" exclusive="true" exclusivity="user" fallBackToDefaultHolder="true" label="@*com.android.permissioncontroller:string/role_assistant_label" name="android.app.role.ASSISTANT" overrideUserWhenGranting="true" requestable="false" shortLabel="@*com.android.permissioncontroller:string/role_assistant_short_label" showNone="true" uiBehavior="AssistantRoleUiBehavior">
+  <role behavior="AssistantRoleBehavior" defaultHolders="config_defaultAssistant" description="@string/role_assistant_description" exclusive="true" exclusivity="user" fallBackToDefaultHolder="true" label="@string/role_assistant_label" name="android.app.role.ASSISTANT" overrideUserWhenGranting="true" requestable="false" shortLabel="@string/role_assistant_short_label" showNone="true" uiBehavior="AssistantRoleUiBehavior">
     <required-components />
     <permissions>
       <permission-set name="sms" />
@@ -85,13 +85,13 @@
       <app-op-permission name="android.permission.SYSTEM_ALERT_WINDOW" />
     </app-op-permissions>
   </role>
-  <role behavior="BrowserRoleBehavior" defaultHolders="config_defaultBrowser" description="@*com.android.permissioncontroller:string/role_browser_description" exclusive="true" exclusivity="user" label="@*com.android.permissioncontroller:string/role_browser_label" name="android.app.role.BROWSER" overrideUserWhenGranting="true" requestDescription="@*com.android.permissioncontroller:string/role_browser_request_description" requestTitle="@*com.android.permissioncontroller:string/role_browser_request_title" shortLabel="@*com.android.permissioncontroller:string/role_browser_short_label">
+  <role behavior="BrowserRoleBehavior" defaultHolders="config_defaultBrowser" description="@string/role_browser_description" exclusive="true" exclusivity="user" label="@string/role_browser_label" name="android.app.role.BROWSER" overrideUserWhenGranting="true" requestDescription="@string/role_browser_request_description" requestTitle="@string/role_browser_request_title" shortLabel="@string/role_browser_short_label">
     <permissions>
       <permission minSdkVersion="34" name="android.permission.PROVIDE_OWN_AUTOFILL_SUGGESTIONS" />
       <permission featureFlag="com.android.window.flags.Flags.enableWindowRepositioningApi" name="android.permission.REPOSITION_SELF_WINDOWS" minSdkVersion="37" />
     </permissions>
   </role>
-  <role behavior="DialerRoleBehavior" defaultHolders="config_defaultDialer" description="@*com.android.permissioncontroller:string/role_dialer_description" exclusive="true" exclusivity="user" fallBackToDefaultHolder="true" label="@*com.android.permissioncontroller:string/role_dialer_label" name="android.app.role.DIALER" overrideUserWhenGranting="true" requestDescription="@*com.android.permissioncontroller:string/role_dialer_request_description" requestTitle="@*com.android.permissioncontroller:string/role_dialer_request_title" searchKeywords="@*com.android.permissioncontroller:string/role_dialer_search_keywords" shortLabel="@*com.android.permissioncontroller:string/role_dialer_short_label" uiBehavior="DialerRoleUiBehavior">
+  <role behavior="DialerRoleBehavior" defaultHolders="config_defaultDialer" description="@string/role_dialer_description" exclusive="true" exclusivity="user" fallBackToDefaultHolder="true" label="@string/role_dialer_label" name="android.app.role.DIALER" overrideUserWhenGranting="true" requestDescription="@string/role_dialer_request_description" requestTitle="@string/role_dialer_request_title" searchKeywords="@string/role_dialer_search_keywords" shortLabel="@string/role_dialer_short_label" uiBehavior="DialerRoleUiBehavior">
     <required-components>
       <activity>
         <intent-filter>
@@ -152,7 +152,7 @@
       </preferred-activity>
     </preferred-activities>
   </role>
-  <role behavior="SmsRoleBehavior" defaultHolders="config_defaultSms" description="@*com.android.permissioncontroller:string/role_sms_description" exclusive="true" exclusivity="user" label="@*com.android.permissioncontroller:string/role_sms_label" name="android.app.role.SMS" overrideUserWhenGranting="true" requestDescription="@*com.android.permissioncontroller:string/role_sms_request_description" requestTitle="@*com.android.permissioncontroller:string/role_sms_request_title" searchKeywords="@*com.android.permissioncontroller:string/role_sms_search_keywords" shortLabel="@*com.android.permissioncontroller:string/role_sms_short_label" uiBehavior="SmsRoleUiBehavior">
+  <role behavior="SmsRoleBehavior" defaultHolders="config_defaultSms" description="@string/role_sms_description" exclusive="true" exclusivity="user" label="@string/role_sms_label" name="android.app.role.SMS" overrideUserWhenGranting="true" requestDescription="@string/role_sms_request_description" requestTitle="@string/role_sms_request_title" searchKeywords="@string/role_sms_search_keywords" shortLabel="@string/role_sms_short_label" uiBehavior="SmsRoleUiBehavior">
     <required-components>
       <receiver permission="android.permission.BROADCAST_SMS">
         <intent-filter>
@@ -221,7 +221,7 @@
       </preferred-activity>
     </preferred-activities>
   </role>
-  <role behavior="EmergencyRoleBehavior" description="@*com.android.permissioncontroller:string/role_emergency_description" exclusive="true" exclusivity="user" label="@*com.android.permissioncontroller:string/role_emergency_label" name="android.app.role.EMERGENCY" overrideUserWhenGranting="true" requestDescription="@*com.android.permissioncontroller:string/role_emergency_request_description" requestTitle="@*com.android.permissioncontroller:string/role_emergency_request_title" searchKeywords="@*com.android.permissioncontroller:string/role_emergency_search_keywords" shortLabel="@*com.android.permissioncontroller:string/role_emergency_short_label" systemOnly="true" uiBehavior="EmergencyRoleUiBehavior">
+  <role behavior="EmergencyRoleBehavior" description="@string/role_emergency_description" exclusive="true" exclusivity="user" label="@string/role_emergency_label" name="android.app.role.EMERGENCY" overrideUserWhenGranting="true" requestDescription="@string/role_emergency_request_description" requestTitle="@string/role_emergency_request_title" searchKeywords="@string/role_emergency_search_keywords" shortLabel="@string/role_emergency_short_label" systemOnly="true" uiBehavior="EmergencyRoleUiBehavior">
     <required-components>
       <activity>
         <intent-filter>
@@ -235,7 +235,7 @@
       <permission minSdkVersion="31" name="android.permission.OBSERVE_SENSOR_PRIVACY" />
     </permissions>
   </role>
-  <role behavior="HomeRoleBehavior" description="@*com.android.permissioncontroller:string/role_home_description" exclusive="true" exclusivity="user" label="@*com.android.permissioncontroller:string/role_home_label" name="android.app.role.HOME" overrideUserWhenGranting="true" requestDescription="@*com.android.permissioncontroller:string/role_home_request_description" requestTitle="@*com.android.permissioncontroller:string/role_home_request_title" searchKeywords="@*com.android.permissioncontroller:string/role_home_search_keywords" shortLabel="@*com.android.permissioncontroller:string/role_home_short_label" uiBehavior="HomeRoleUiBehavior">
+  <role behavior="HomeRoleBehavior" description="@string/role_home_description" exclusive="true" exclusivity="user" label="@string/role_home_label" name="android.app.role.HOME" overrideUserWhenGranting="true" requestDescription="@string/role_home_request_description" requestTitle="@string/role_home_request_title" searchKeywords="@string/role_home_search_keywords" shortLabel="@string/role_home_short_label" uiBehavior="HomeRoleUiBehavior">
     <required-components>
       <activity>
         <intent-filter>
@@ -267,7 +267,7 @@
       <app-op minSdkVersion="35" mode="allowed" name="android:receive_sensitive_notifications" />
     </app-ops>
   </role>
-  <role defaultHolders="config_defaultCallRedirection" description="@*com.android.permissioncontroller:string/role_call_redirection_description" exclusive="true" exclusivity="user" label="@*com.android.permissioncontroller:string/role_call_redirection_label" name="android.app.role.CALL_REDIRECTION" overrideUserWhenGranting="true" requestDescription="@*com.android.permissioncontroller:string/role_call_redirection_request_description" requestTitle="@*com.android.permissioncontroller:string/role_call_redirection_request_title" shortLabel="@*com.android.permissioncontroller:string/role_call_redirection_short_label" showNone="true">
+  <role defaultHolders="config_defaultCallRedirection" description="@string/role_call_redirection_description" exclusive="true" exclusivity="user" label="@string/role_call_redirection_label" name="android.app.role.CALL_REDIRECTION" overrideUserWhenGranting="true" requestDescription="@string/role_call_redirection_request_description" requestTitle="@string/role_call_redirection_request_title" shortLabel="@string/role_call_redirection_short_label" showNone="true">
     <required-components>
       <service permission="android.permission.BIND_CALL_REDIRECTION_SERVICE">
         <intent-filter>
@@ -276,7 +276,7 @@
       </service>
     </required-components>
   </role>
-  <role defaultHolders="config_defaultCallScreening" description="@*com.android.permissioncontroller:string/role_call_screening_description" exclusive="true" exclusivity="user" label="@*com.android.permissioncontroller:string/role_call_screening_label" name="android.app.role.CALL_SCREENING" overrideUserWhenGranting="true" requestDescription="@*com.android.permissioncontroller:string/role_call_screening_request_description" requestTitle="@*com.android.permissioncontroller:string/role_call_screening_request_title" shortLabel="@*com.android.permissioncontroller:string/role_call_screening_short_label" showNone="true">
+  <role defaultHolders="config_defaultCallScreening" description="@string/role_call_screening_description" exclusive="true" exclusivity="user" label="@string/role_call_screening_label" name="android.app.role.CALL_SCREENING" overrideUserWhenGranting="true" requestDescription="@string/role_call_screening_request_description" requestTitle="@string/role_call_screening_request_title" shortLabel="@string/role_call_screening_short_label" showNone="true">
     <required-components>
       <service permission="android.permission.BIND_SCREENING_SERVICE">
         <intent-filter>
@@ -310,7 +310,7 @@
       <permission name="android.car.permission.CAR_ENERGY" />
     </permissions>
   </role>
-  <role behavior="v31.CompanionDeviceWatchRoleBehavior" description="@*com.android.permissioncontroller:string/role_watch_description" exclusive="false" exclusivity="none" minSdkVersion="31" name="android.app.role.COMPANION_DEVICE_WATCH" systemOnly="false" visible="false">
+  <role behavior="v31.CompanionDeviceWatchRoleBehavior" description="@string/role_watch_description" exclusive="false" exclusivity="none" minSdkVersion="31" name="android.app.role.COMPANION_DEVICE_WATCH" systemOnly="false" visible="false">
     <permissions>
       <permission-set name="calendar" />
       <permission-set name="phone" />
@@ -598,7 +598,7 @@
       <permission name="android.permission.OBSERVE_SENSOR_PRIVACY" />
     </permissions>
   </role>
-  <role behavior="v33.CompanionDeviceAppStreamingRoleBehavior" description="@*com.android.permissioncontroller:string/role_app_streaming_description" exclusive="false" exclusivity="none" minSdkVersion="33" name="android.app.role.COMPANION_DEVICE_APP_STREAMING" systemOnly="true" visible="false">
+  <role behavior="v33.CompanionDeviceAppStreamingRoleBehavior" description="@string/role_app_streaming_description" exclusive="false" exclusivity="none" minSdkVersion="33" name="android.app.role.COMPANION_DEVICE_APP_STREAMING" systemOnly="true" visible="false">
     <permissions>
       <permission-set name="notifications" />
       <permission-set name="virtual_device" />
@@ -606,7 +606,7 @@
       <permission featureFlag="android.companion.virtualdevice.flags.Flags.enableLimitedVdmRole" name="android.permission.ADD_MIRROR_DISPLAY" />
     </permissions>
   </role>
-  <role allowBypassingQualification="true" behavior="v33.CompanionDeviceComputerRoleBehavior" description="@*com.android.permissioncontroller:string/role_companion_device_computer_description" exclusive="false" exclusivity="none" minSdkVersion="33" name="android.app.role.COMPANION_DEVICE_COMPUTER" systemOnly="true" visible="false">
+  <role allowBypassingQualification="true" behavior="v33.CompanionDeviceComputerRoleBehavior" description="@string/role_companion_device_computer_description" exclusive="false" exclusivity="none" minSdkVersion="33" name="android.app.role.COMPANION_DEVICE_COMPUTER" systemOnly="true" visible="false">
     <permissions>
       <permission-set name="notifications" />
       <permission-set name="storage" />
@@ -806,7 +806,7 @@
       <permission name="android.permission.WRITE_CALENDAR" />
     </permissions>
   </role>
-  <role behavior="v31.AutomotiveRoleBehavior" defaultHolders="config_defaultAutomotiveNavigation" description="@*com.android.permissioncontroller:string/role_automotive_navigation_description" exclusive="true" exclusivity="user" label="@*com.android.permissioncontroller:string/role_automotive_navigation_label" minSdkVersion="33" name="android.app.role.AUTOMOTIVE_NAVIGATION" overrideUserWhenGranting="true" requestDescription="@*com.android.permissioncontroller:string/role_automotive_navigation_request_description" requestTitle="@*com.android.permissioncontroller:string/role_automotive_navigation_request_title" shortLabel="@*com.android.permissioncontroller:string/role_automotive_navigation_short_label">
+  <role behavior="v31.AutomotiveRoleBehavior" defaultHolders="config_defaultAutomotiveNavigation" description="@string/role_automotive_navigation_description" exclusive="true" exclusivity="user" label="@string/role_automotive_navigation_label" minSdkVersion="33" name="android.app.role.AUTOMOTIVE_NAVIGATION" overrideUserWhenGranting="true" requestDescription="@string/role_automotive_navigation_request_description" requestTitle="@string/role_automotive_navigation_request_title" shortLabel="@string/role_automotive_navigation_short_label">
     <required-components>
       <activity>
         <intent-filter>
@@ -917,7 +917,7 @@
       <permission featureFlag="android.permission.flags.Flags.replaceBodySensorPermissionEnabled" name="android.permission.health.READ_HEALTH_DATA_IN_BACKGROUND" />
     </permissions>
   </role>
-  <role behavior="v34.NotesRoleBehavior" defaultHolders="config_defaultNotes" description="@*com.android.permissioncontroller:string/role_notes_description" exclusive="true" exclusivity="user" label="@*com.android.permissioncontroller:string/role_notes_label" minSdkVersion="34" name="android.app.role.NOTES" overrideUserWhenGranting="true" requestable="false" searchKeywords="@*com.android.permissioncontroller:string/role_notes_search_keywords" shortLabel="@*com.android.permissioncontroller:string/role_notes_short_label" showNone="true">
+  <role behavior="v34.NotesRoleBehavior" defaultHolders="config_defaultNotes" description="@string/role_notes_description" exclusive="true" exclusivity="user" label="@string/role_notes_label" minSdkVersion="34" name="android.app.role.NOTES" overrideUserWhenGranting="true" requestable="false" searchKeywords="@string/role_notes_search_keywords" shortLabel="@string/role_notes_short_label" showNone="true">
     <required-components>
       <activity flags="0x01800000">
         <intent-filter>
@@ -971,7 +971,7 @@
       <app-op-permission name="android.permission.PACKAGE_USAGE_STATS" />
     </app-op-permissions>
   </role>
-  <role behavior="v35.WalletRoleBehavior" defaultHolders="config_defaultWallet" description="@*com.android.permissioncontroller:string/role_wallet_description" exclusive="true" exclusivity="profileGroup" label="@*com.android.permissioncontroller:string/role_wallet_label" minSdkVersion="35" name="android.app.role.WALLET" overrideUserWhenGranting="true" requestDescription="@*com.android.permissioncontroller:string/role_wallet_request_description" requestTitle="@*com.android.permissioncontroller:string/role_wallet_request_title" requestable="true" shortLabel="@*com.android.permissioncontroller:string/role_wallet_short_label" showNone="true" uiBehavior="v35.WalletRoleUiBehavior" />
+  <role behavior="v35.WalletRoleBehavior" defaultHolders="config_defaultWallet" description="@string/role_wallet_description" exclusive="true" exclusivity="profileGroup" label="@string/role_wallet_label" minSdkVersion="35" name="android.app.role.WALLET" overrideUserWhenGranting="true" requestDescription="@string/role_wallet_request_description" requestTitle="@string/role_wallet_request_title" requestable="true" shortLabel="@string/role_wallet_short_label" showNone="true" uiBehavior="v35.WalletRoleUiBehavior" />
   <role allowBypassingQualification="true" defaultHolders="config_systemDependencyInstaller" exclusive="true" exclusivity="user" featureFlag="android.content.pm.Flags.sdkDependencyInstaller" name="android.app.role.SYSTEM_DEPENDENCY_INSTALLER" static="true" systemOnly="true" visible="false">
     <required-components>
       <service permission="android.permission.BIND_DEPENDENCY_INSTALLER">
@@ -985,7 +985,7 @@
       <permission name="android.permission.INSTALL_DEPENDENCY_SHARED_LIBRARIES" />
     </permissions>
   </role>
-  <role behavior="v36.ReservedForTestingProfileGroupExclusivityRoleBehavior" description="@*com.android.permissioncontroller:string/role_for_testing_profile_group_exclusivity_description" exclusive="true" exclusivity="profileGroup" fallBackToDefaultHolder="true" featureFlag="com.android.permission.flags.Flags.crossUserRoleEnabled" label="@*com.android.permissioncontroller:string/role_for_testing_profile_group_exclusivity_label" minSdkVersion="36" name="android.app.role.RESERVED_FOR_TESTING_PROFILE_GROUP_EXCLUSIVITY" requestDescription="@*com.android.permissioncontroller:string/role_for_testing_profile_group_exclusivity_request_description" requestTitle="@*com.android.permissioncontroller:string/role_for_testing_profile_group_exclusivity_request_title" requestable="true" shortLabel="@*com.android.permissioncontroller:string/role_for_testing_profile_group_exclusivity_short_label" showNone="true" uiBehavior="v36.ReservedForTestingProfileGroupExclusivityRoleUiBehavior" visible="false" />
+  <role behavior="v36.ReservedForTestingProfileGroupExclusivityRoleBehavior" description="@string/role_for_testing_profile_group_exclusivity_description" exclusive="true" exclusivity="profileGroup" fallBackToDefaultHolder="true" featureFlag="com.android.permission.flags.Flags.crossUserRoleEnabled" label="@string/role_for_testing_profile_group_exclusivity_label" minSdkVersion="36" name="android.app.role.RESERVED_FOR_TESTING_PROFILE_GROUP_EXCLUSIVITY" requestDescription="@string/role_for_testing_profile_group_exclusivity_request_description" requestTitle="@string/role_for_testing_profile_group_exclusivity_request_title" requestable="true" shortLabel="@string/role_for_testing_profile_group_exclusivity_short_label" showNone="true" uiBehavior="v36.ReservedForTestingProfileGroupExclusivityRoleUiBehavior" visible="false" />
   <role defaultHolders="config_systemVendorIntelligence" exclusive="true" exclusivity="user" featureFlag="android.permission.flags.Flags.systemVendorIntelligenceRoleEnabled" name="android.app.role.SYSTEM_VENDOR_INTELLIGENCE" static="true" systemOnly="true" visible="false">
     <permissions>
       <permission name="android.permission.ACCESS_BACKGROUND_LOCATION" />

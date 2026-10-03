@@ -116,8 +116,8 @@ Options:
 --res <dir>           overlay directory (default: RES)
 --keep-work           keep the working tree instead of cleaning it up
 --apex-stock <input>  separate Android-matched stock ROM/tree for Ace 3V SDK35/36 APEX
---adb-key <public>    optionally authorize one adbkey.pub; authentication stays enabled
---force-adb           development ADB; SDK35 always keeps authentication and UID2000
+--adb-key <public>    optionally authorize one adbkey.pub for authenticated ADB builds
+--force-adb           development ADB; SDK35 already uses no-auth ADB with UID2000
 --assemble-only       assemble and compile policy without repacking images
 ```
 
@@ -234,6 +234,13 @@ stock, compiles the compatibility policy, and applies the setup flow. ADB remain
 enabled at boot but uses authentication and drops to UID 2000; SELinux stays
 globally enforcing. Insecure/root ADB is available only through `--force-adb`.
 These changes are selected by donor SDK, not the ROM name.
+
+Ace 3V SDK35 removes SetupWizard and enables ADB without host authentication
+at boot, including bootanimation. It retains `ro.secure=1`, `ro.debuggable=0`,
+shell UID2000 and SELinux Enforcing. The signed adbd APEX is unchanged; the
+tested daemon is bound into its namespace after APEX activation. The no-auth
+profile accepts only the recorded donor APEX hash and fails on unsupported
+versions. See [Android 15 boot ADB](devices/OnePlusAce3V/android-35/boot_adb/README.md).
 
 ## RES overlays
 

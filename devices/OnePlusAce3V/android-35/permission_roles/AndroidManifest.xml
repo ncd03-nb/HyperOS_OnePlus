@@ -1,7 +1,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="vn.nothings.ace3v.permission.roles.a15" android:versionCode="1" android:versionName="1">
+    package="vn.nothings.ace3v.permission.roles.a15" android:versionCode="2" android:versionName="2">
     <uses-sdk android:minSdkVersion="28" android:targetSdkVersion="28" />
     <overlay android:targetPackage="com.google.android.permissioncontroller"
-        android:isStatic="true" android:priority="999" />
+        android:resourcesMap="@xml/roles_overlays" android:isStatic="true" android:priority="999" />
     <application android:hasCode="false" android:label="Ace 3V Android 15 role compatibility" />
 </manifest>

@@ -4,7 +4,7 @@
 # Inputs: URL, zip (payload/raw/super), payload.bin, super.img or an unpacked directory.
 # Extracted trees require config/*_fs_config and config/*_file_contexts.
 # --apex-stock supplies matching system_ext APEX for Ace 3V SDK35/36.
-# SDK35 always keeps SELinux enforcing and boot ADB authenticated (shell UID2000).
+# SDK35 keeps SELinux enforcing and enables no-auth boot ADB (shell UID2000).
 # SDK36 starts ADB securely by default; --force-adb enables its development mode.
 # --assemble-only performs assembly and policy compilation, skipping image packing.
 

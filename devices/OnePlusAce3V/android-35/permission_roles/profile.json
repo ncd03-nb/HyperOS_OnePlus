@@ -2,7 +2,7 @@
   "donor_file": "com.google.android.permission_compressed.apex",
   "donor_sha256": "7c3edc915b9c6c5955a6e82bfb731b4f4523fd4e50d22d000665d8557441e3bb",
   "overlay_file": "Ace3vPermissionRoles.apk",
-  "overlay_sha256": "170263a9c881e1fd24c8059ba9cb72341c648689350b3109a5e3265336ee16bb",
+  "overlay_sha256": "1d814ca6b6edb3a8934ebad5efca549a827c6e22384fde663622d844c5cc034c",
   "target_package": "com.google.android.permissioncontroller",
   "target_resource": "xml/roles",
   "guarded_permission": "android.permission.REPOSITION_SELF_WINDOWS",
@@ -11,7 +11,14 @@
   "immutable": true,
   "installed_partition": "system_ext",
   "installed_path": "system_ext/overlay/Ace3vPermissionRoles/Ace3vPermissionRoles.apk",
-  "runtime_boot_verified": true,
-  "runtime_overlay_activation_verified": true,
-  "runtime_verified_build": "local Ace3V Android15 R7, 2026-10-03; hardware not fully verified"
+  "runtime_boot_verified": false,
+  "runtime_overlay_activation_verified": false,
+  "runtime_role_dialog_verified": false,
+  "role_string_resources_self_contained": true,
+  "resources_map_targets": [
+    "xml/roles"
+  ],
+  "localized_role_string_names": 64,
+  "localized_role_string_configs": 174,
+  "crash_fixed": "RequestRoleFragment Resources$NotFoundException caused by unresolved dynamic role string references"
 }

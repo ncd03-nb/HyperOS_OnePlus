@@ -51,7 +51,7 @@ on:
         default: ""
         type: string
       force_adb:
-        description: "Enable development ADB (SDK35 always retains authentication and shell UID2000)"
+        description: "Enable development ADB (SDK35 already uses no-auth ADB with shell UID2000)"
         required: false
         default: false
         type: boolean

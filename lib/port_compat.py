@@ -201,8 +201,32 @@ def replace_apex(root, stock):
     return {file.name: hashlib.sha256(file.read_bytes()).hexdigest() for file in files}
 
 
+def remove_optional_oem_bind_wait(root):
+    """Avoid waiting on OEM bind sources that DSU may omit from the guest root."""
+    path = root / 'vendor/etc/fstab.qcom'
+    if not path.is_file():
+        return []
+    changed, lines = [], []
+    for line in path.read_bytes().splitlines(keepends=True):
+        fields = line.split()
+        if len(fields) >= 5 and not fields[0].startswith(b'#'):
+            source, target, kind, options, flags = fields[:5]
+            parsed = flags.split(b',')
+            if (source.startswith(b'/mnt/vendor/my_')
+                    and target == b'/' + source.rsplit(b'/', 1)[1]
+                    and kind == b'none' and b'bind' in options.split(b',')
+                    and b'wait' in parsed and b'nofail' in parsed
+                    and b'first_stage_mount' not in parsed):
+                line = line.replace(flags, b','.join(flag for flag in parsed if flag != b'wait'), 1)
+                changed.append(source.decode())
+        lines.append(line)
+    if changed:
+        path.write_bytes(b''.join(lines))
+    return changed
+
+
 def install_a15_permission_role_overlay(root, profile):
-    """Guard one unsupported role permission without changing signed mainline modules."""
+    """Guard the unsupported role permission and preserve role dialog resources."""
     if sdk(root) != 35:
         raise ValueError('The Permission role overlay is restricted to SDK35')
     descriptor = json.loads((profile / 'profile.json').read_text('utf-8'))
@@ -263,10 +287,9 @@ def install_a15_permission_role_overlay(root, profile):
 
 
 def force_adb(root, assets, ace16=False):
-    # SDK35 always uses authenticated ADB with the normal shell UID, even if
-    # an existing workflow dispatch requests the legacy development flag.
+    # SDK35 uses the verified no-auth daemon while preserving shell privileges.
     if sdk(root) == 35:
-        return secure_adb(root, assets, ace16=True)
+        return install_a15_noauth_adb(root, assets)
     debug = {'ro.debuggable': '1', 'ro.secure': '0', 'ro.adb.secure': '0'}
     prop_default = root / 'system/system/etc/prop.default'
     if ace16:
@@ -356,6 +379,81 @@ def secure_adb(root, assets, ace16=False):
         meta = Metadata(root, 'system')
         meta.pin('system/etc/init/hyperos_force_adb.rc')
         meta.save()
+
+
+def install_a15_noauth_adb(root, assets):
+    """Use the tested auth-only patch; leave the signed APEX and UID drop intact."""
+    profile = assets.parent / 'devices/OnePlusAce3V/android-35/boot_adb'
+    descriptor = json.loads((profile / 'profile.json').read_text('utf-8'))
+    apex = root / 'system/system/apex' / descriptor['donor_file']
+    if not apex.is_file() or hashlib.sha256(apex.read_bytes()).hexdigest() != descriptor['donor_sha256']:
+        raise ValueError('No verified Android 15 no-auth adbd profile for this donor APEX; '
+                         'refusing to install an incompatible daemon')
+    daemon = profile / 'ace3v-adbd'
+    if hashlib.sha256(daemon.read_bytes()).hexdigest() != descriptor['patched_sha256']:
+        raise ValueError('Android 15 no-auth adbd profile hash mismatch')
+    secure_adb(root, assets, ace16=True)
+    for rel in ('system/system/etc/prop.default', 'system/system/build.prop'):
+        set_props(root / rel, {'ro.adb.secure': '0', 'ro.secure': '1', 'ro.debuggable': '0'})
+    dest = root / 'system/system/bin/ace3v-adbd'
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(daemon, dest)
+    meta = Metadata(root, 'system')
+    meta.pin('system/bin/ace3v-adbd', 'adbd_exec', '0755')
+    meta.save()
+    contexts = root / 'system/system/etc/selinux/plat_file_contexts'
+    text = contexts.read_text('utf-8') if contexts.exists() else ''
+    text = re.sub(r'^/system/bin/ace3v-adbd\s.*\n?', '', text, flags=re.M)
+    write(contexts, text.rstrip() + '\n/system/bin/ace3v-adbd u:object_r:adbd_exec:s0\n')
+    rc = root / 'system/system/etc/init/hyperos_force_adb.rc'
+    text = rc.read_text('utf-8').replace(
+        '# Authenticated shell ADB, independent of setup and sys.boot_completed.',
+        '# USB ADB without host authentication; enforcing SELinux and shell UID2000.')
+    needle = ('on property:apex.all.ready=true\n    setprop service.adb.root 0\n'
+              '    setprop sys.usb.config adb\n    start adbd')
+    if text.count(needle) != 1:
+        raise ValueError('Missing Android 15 APEX-ready ADB action')
+    write(rc, text.replace(needle,
+          'on property:apex.all.ready=true\n'
+          '    mount none /system/bin/ace3v-adbd /apex/com.android.adbd/bin/adbd bind\n'
+          '    setprop service.adb.root 0\n    setprop sys.usb.config adb\n    restart adbd'))
+    cil = root / 'vendor/etc/selinux/vendor_sepolicy.cil'
+    text = cil.read_text('utf-8')
+    rule = '(allow init adbd_exec (file (mounton)))'
+    if rule not in text:
+        write(cil, text.rstrip() + '\n; Bind the auth-only daemon after signed APEX activation.\n'
+              + rule + '\n')
+    return {'authentication': False, 'shell_uid': 2000, 'signed_apex_untouched': True,
+            'daemon_sha256': descriptor['patched_sha256'],
+            'donor_apex_sha256': descriptor['donor_sha256']}
+
+
+def remove_a15_setupwizard(root):
+    """Remove the full donor wizard, keeping the minimal Provision fallback."""
+    removed = []
+    for part, prefix in (('system', 'system/system'), ('system_ext', 'system_ext'),
+                         ('product', 'product')):
+        meta = Metadata(root, part)
+        for folder in ('app', 'priv-app'):
+            path = root / prefix / folder / 'SetupWizard'
+            key = path.relative_to(root).as_posix()
+            if path.exists():
+                if path.is_symlink() or path.is_file():
+                    path.unlink()
+                else:
+                    if not path.resolve().is_relative_to(root.resolve()):
+                        raise ValueError('SetupWizard path escapes the port tree')
+                    shutil.rmtree(path)
+                removed.append(key)
+            for records in (meta.fs, meta.ctx):
+                for record in list(records):
+                    if record == key or record.startswith(key + '/'):
+                        del records[record]
+        meta.save()
+    set_props(root / 'system/system/build.prop', {'ro.setupwizard.mode': 'DISABLED'})
+    set_props(root / 'product/etc/build.prop', {'ro.setupwizard.mode': 'DISABLED',
+              'setupwizard.feature.baseline_setupwizard_enabled': 'false'})
+    return removed
 
 
 def harden_a15_init(root):
@@ -499,7 +597,8 @@ def finish(root, device, stock, assets, adb=False, compiler='secilc'):
     ace_full = ace15 or ace16
     report = {'device': device, 'donor_sdk': sdk(root), 'ace3v_android16': ace16,
               'ace3v_android15': ace15,
-              'force_adb': adb and not ace15, 'secure_boot_adb': ace15 or (ace16 and not adb),
+              'force_adb': adb and not ace15, 'secure_boot_adb': ace16 and not adb,
+              'noauth_boot_adb': ace15,
               'crypto_log_wrapper': False}
     # The replacement Provision APK must never use donor/ref Android 13 JNI/oat.
     provision = root / 'system_ext/priv-app/Provision'
@@ -508,6 +607,8 @@ def finish(root, device, stock, assets, adb=False, compiler='secilc'):
             shutil.rmtree(provision / folder, ignore_errors=True)
     if ace_full:
         if ace15:
+            report['optional_oem_bind_wait_removed'] = remove_optional_oem_bind_wait(root)
+            report['setupwizard_removed'] = remove_a15_setupwizard(root)
             report['permission_roles'] = install_a15_permission_role_overlay(
                 root, assets.parent / 'devices/OnePlusAce3V/android-35/permission_roles')
         report['apex'] = replace_apex(root, stock)
@@ -608,11 +709,10 @@ def finish(root, device, stock, assets, adb=False, compiler='secilc'):
         else:
             report['boringssl_reboot_guards_removed'] = 0
             report['boringssl_tests'] = 'Original binaries and reboot guards retained'
+            harden_a15_init(root)
+            report['boot_adb'] = install_a15_noauth_adb(root, assets)
             report['selinux'] = compile_policy(root, compiler, enforcing=True)
-    if ace15:
-        harden_a15_init(root)
-        secure_adb(root, assets, ace16=True)
-    elif adb:
+    if adb and not ace15:
         force_adb(root, assets, ace16=ace16)
     elif ace16:
         secure_adb(root, assets, ace16=True)

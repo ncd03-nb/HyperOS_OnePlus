@@ -1,0 +1,15 @@
+{
+  "donor_file": "com.google.android.adbd_compressed.apex",
+  "donor_sha256": "9903b60d0958bb51486218b95f8aa8a709036d048100f34f17f11dea314ce6d3",
+  "original_sha256": "3909ed462acfdbc179ce819378eee18f0a0001f343588c94ab0396bbd5fc5c3c",
+  "patched_sha256": "57f8a5ea77aeafd4805d428f805a0b76abb3b5a042bf584b625c3f84c067908e",
+  "patch_offset": "0xa8d50",
+  "original_instruction": "a0020034",
+  "replacement_instruction": "1f2003d5",
+  "shell_uid": 2000,
+  "selinux": "Enforcing",
+  "authentication": false,
+  "signed_apex_untouched": true,
+  "runtime_boot_verified": true,
+  "runtime_shell_uid_verified": true
+}

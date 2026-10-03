@@ -1,5 +1,15 @@
 # OnePlus Ace 3V: HyperOS 3 / Android 15
 
+Current SDK35 builds remove the full SetupWizard and start ADB without host
+authentication during boot. Shell UID2000 and SELinux Enforcing are retained.
+The verified daemon and donor hashes are in `android-35/boot_adb/`.
+The local ROM with this flow completed boot; it still has PermissionController
+compatibility crashes involving `RANGING` and `checkOpRawNoThrow`. The role
+resource overlay does not resolve those code/API mismatches. Do not disable
+PermissionController: that prevents PackageManagerService from starting.
+
+The following R4–R7 observations describe earlier iterations.
+
 SDK35 uses the complete mi_ext/pangu assembly from Android 16, with Android 15
 stock APEX and a separate enforcing service profile. The local donor is
 mondrian `OS3.0.2.0.VMNTWXM`. R4 has authenticated boot ADB, with shell UID2000
@@ -93,11 +103,15 @@ Original BoringSSL binaries and reboot guards remain.
 
 ## Security and setup
 
-- ADB starts at boot with `ro.secure=1`, `ro.adb.secure=1`, `ro.debuggable=0`
+- ADB starts at boot with `ro.secure=1`, `ro.adb.secure=0`, `ro.debuggable=0`
   and normal privilege dropping to shell UID2000. Init launches the daemon
-  with its standard root UID; adbd drops privileges before USB initialization. `--force-adb`
-  cannot enable insecure/root ADB on SDK35. Optional `--adb-key adbkey.pub`
-  authorizes a caller-provided public key while retaining authentication.
+  with its standard root UID; adbd drops privileges before USB initialization.
+  SDK35 does not require `--force-adb` or a host key. The original signed APEX
+  remains intact; init binds the hash-verified auth-only patched executable
+  into the APEX and restarts adbd after activation. Its init mounton rule is
+  included before enforcing policy compilation. Unsupported donor APEX hashes
+  fail the build. See `devices/OnePlusAce3V/android-35/boot_adb/README.md`.
+  The optional key handling from earlier authenticated builds remains available:
   `/adb_keys` is a regular root-owned 0644 file labeled `adb_keys_file`.
   Android 15's [libadbd_auth](https://android.googlesource.com/platform/frameworks/native/+/android-15.0.0_r1/libs/adbd_auth/adbd_auth.cpp)
   reads it with [ReadFileToString's default O_NOFOLLOW](https://android.googlesource.com/platform/system/libbase/+/android-15.0.0_r1/include/android-base/file.h), so the old symlink
@@ -110,7 +124,7 @@ Original BoringSSL binaries and reboot guards remain.
   R2 removed only the four security resets; R3 removed all 13. At the user's
   request R4 restores the nine donor boot-state/vbmeta overrides, preserving
   non-ADB ResetProp modifications and keeping the four security resets removed.
-  Static secure defaults remain. Unrelated hardware property resets are
+  Static UID-dropping defaults remain. Unrelated hardware property resets are
   preserved. Binary SHA256, executable metadata
   and init execute permission matched the donor; no executable-label defect
   was found. ResetProp has not been established as the shutdown cause.
@@ -137,10 +151,16 @@ Original BoringSSL binaries and reboot guards remain.
   This skips build-time neverallow assertions and retains runtime enforcement.
   The mixed OEM policies fail the separate neverallow build check, so there is
   no CTS policy-compliance claim.
-- The minimal Provision APK replaces the donor setup UI and JNI/oat cache.
+- The full SetupWizard directory and its fs_config/file_contexts entries are
+  removed from the Android 15 image. Setupwizard mode is disabled in system
+  and product props. The minimal Provision APK is retained without donor JNI/oat cache.
   Provisioning and alert-slider Java services use system UID1000 in the
   dedicated `ace3v_port` domain. They do not execute a root shell or add shell
   access rules. SDK35 keeps original BoringSSL binaries and reboot guards.
+
+- Optional OEM `my_*` bind mounts retain `nofail` and lose only the `wait`
+  flag that caused ten approximately 20-second waits in the observed DSU
+  boot. Required first-stage and block-device waits are unchanged.
 
 Regional `ro.product.mod_device=mondrian_tw_global` is retained. FeatureParser
 uses the existing `mondrian.xml`, with 1240-pixel width and 120/90/60 Hz.
