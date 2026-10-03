@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # HyperOS (2-4) -> OnePlus auto-porter (multi-device; see devices/).
 #   ./port.sh --stock <stock-rom> --hyperos <hyperos-rom> [--device <profile>]
-# Inputs: URL, zip, payload.bin or an unpacked directory.
+# Inputs: URL, zip (payload/raw/super), payload.bin, super.img or an unpacked directory.
 # Extracted trees require config/*_fs_config and config/*_file_contexts.
 # --apex-stock supplies matching system_ext APEX for Ace 3V SDK35/36.
 # SDK35 always keeps SELinux enforcing and boot ADB authenticated (shell UID2000).
@@ -134,32 +134,20 @@ download() {   # url dstdir label -> echoes path
         *.zip) out="$out.zip";; *.bin) out="$out.bin";; *) out="$out.zip";;
     esac
     log "downloading $label ROM: $url" >&2
-    if command -v aria2c >/dev/null; then
-        run aria2c -x16 -s16 -o "$(basename "$out")" -d "$dst" "$url" >&2
+    if [[ "${url%%\?*}" == *.download.json ]]; then
+        "$PY" "$HERE/lib/release_download.py" "$url" "$out" >&2 || return $?
+    elif "$PY" "$HERE/lib/gdrive.py" --is-drive-url "$url"; then
+        "$PY" "$HERE/lib/gdrive.py" "$url" "$out" >&2 || return $?
+    elif command -v aria2c >/dev/null; then
+        run aria2c -x16 -s16 -o "$(basename "$out")" -d "$dst" "$url" >&2 || return $?
     elif command -v curl >/dev/null; then
-        run curl -L --fail -o "$out" "$url" >&2
+        run curl -L --fail -o "$out" "$url" >&2 || return $?
     elif command -v wget >/dev/null; then
-        run wget -O "$out" "$url" >&2
+        run wget -O "$out" "$url" >&2 || return $?
     else
         die "no downloader (need aria2c, curl or wget)"
     fi
     printf '%s\n' "$out"
-}
-
-unzip_find_payload() {   # zip dstdir label -> echoes path (payload.bin or dir)
-    local zip="$1" dst="$2" label="$3" ex="$2/${3}_zip"
-    mkdir -p "$ex"
-    local payload
-    payload="$(unzip -Z1 "$zip" 2>/dev/null | grep -m1 '\(^\|/\)payload\.bin$' || true)"
-    if [ -n "$payload" ]; then
-        log "found $payload in zip" >&2
-        run unzip -o -j "$zip" "$payload" -d "$ex" >&2
-        printf '%s\n' "$ex/$(basename "$payload")"
-    else
-        run unzip -o "$zip" '*.img' -d "$ex" >&2 || true
-        ls "$ex"/*.img >/dev/null 2>&1 || die "$label zip: no payload.bin and no *.img"
-        printf '%s\n' "$ex"
-    fi
 }
 
 resolve_input() {   # src dstdir label -> echoes local path (zip/bin/dir, as-is)
@@ -183,32 +171,26 @@ find_dumper() {   # echoes payload-dumper-rust binary if available
     return 0
 }
 
-# zip/payload.bin -> *.img (rust reads either directly); echoes dir of <part>.img
+# Detect payload/raw/super before invoking a payload dumper; echoes image dir.
 dump_payload() {   # input outdir label parts...
     local inp="$1" outdir="$2" label="$3"; shift 3
     local parts="$*"; parts="${parts// /,}"
     mkdir -p "$outdir"
     local tool; tool="$(find_dumper)"
-    if [ -n "$tool" ]; then
-        log "extracting $parts from $(basename "$inp") with payload-dumper-rust" >&2
-        quiet_run "$tool" "$inp" -o "$outdir" -i "$parts" >&2
-        printf '%s\n' "$outdir"; return
-    fi
-    local payload="$inp"
-    case "$inp" in *.zip) payload="$(unzip_find_payload "$inp" "$outdir" "$label")";; esac
-    [ -d "$payload" ] && { printf '%s\n' "$payload"; return; }  # zip carried raw *.img
-    log "extracting $parts with built-in extractor" >&2
-    quiet_run "$PY" "$HERE/lib/payload_extractor.py" -o "$outdir" -p "$parts" "$payload" >&2
+    local args=()
+    [ -z "$tool" ] || args+=(--payload-tool "$tool")
+    log "extracting $parts from $(basename "$inp") (payload/raw/super auto-detection)" >&2
+    quiet_run "$PY" "$HERE/lib/rom_input.py" "$inp" -o "$outdir" -p "$parts" "${args[@]}" >&2 || return $?
     printf '%s\n' "$outdir"
 }
 
 get_images() {   # resolved outdir label parts... ; sets IMG_<part> vars
     local resolved="$1" outdir="$2" label="$3"; shift 3
     local p imgdir
-    if [ -d "$resolved" ]; then
+    if [ -d "$resolved" ] && [ -f "$resolved/config/${1}_fs_config" ] && [ -f "$resolved/config/${1}_file_contexts" ]; then
         imgdir="$resolved"
     else
-        imgdir="$(dump_payload "$resolved" "$outdir" "$label" "$@")"
+        imgdir="$(dump_payload "$resolved" "$outdir" "$label" "$@")" || return $?
     fi
     for p in "$@"; do
         if [ -d "$imgdir/$p" ] && [ -f "$imgdir/config/${p}_fs_config" ] && [ -f "$imgdir/config/${p}_file_contexts" ]; then

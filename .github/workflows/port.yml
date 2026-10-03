@@ -17,7 +17,7 @@ on:
         required: true
         type: string
       hyperos_url:
-        description: "HyperOS ROM link (HyperOS 2 to 4, full recovery/OTA zip or payload.bin)"
+        description: "HyperOS 2-4 URL: OTA/toolbuild ZIP, super.img, Drive file or GitHub .download.json"
         required: true
         type: string
       apex_stock_url:

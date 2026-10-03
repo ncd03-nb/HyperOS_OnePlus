@@ -50,9 +50,43 @@ verified folder under `devices/` is preferred. If none matches, the porter
 creates an in-memory automatic profile from the stock model, codename, density,
 market name and FOD props, then continues the build. `--device` remains an
 optional manual override (for example, `OnePlus13`).
-`--stock` and `--hyperos` accept a URL, an OTA/fastboot/recovery zip, a
-`payload.bin`, or a directory of raw `.img` files. The finished zip lands in
-`out/`.
+`--stock`, `--hyperos` and `--apex-stock` accept a URL, an OTA/fastboot/recovery
+ZIP, `payload.bin`, a raw or Android sparse `super.img`, a directory of raw
+images, or extracted trees with their `config/` metadata. ZIPs built by
+`nothingsvn_xiaomi-toolbuild` are supported: the porter finds `super/super.img`
+inside the archive and extracts only the requested logical partitions. Nested
+raw images are also supported. Populated `_a`/`_b` names are normalized to
+`system.img`, etc.; empty slots are skipped. Flashing scripts and firmware
+images from the donor package are not executed or installed. The finished ZIP
+lands in `out/`. Super extraction is built into Python and requires neither
+`lpunpack` nor an intermediate full unsparse copy. Multi-device retrofit super
+images are unsupported.
+
+Google Drive public file share URLs are accepted directly, including the
+large-file confirmation step:
+
+```bash
+./port.sh --stock /path/to/stock.zip \
+  --hyperos 'https://drive.google.com/file/d/FILE_ID/view?usp=sharing'
+```
+
+Drive quota or permission errors stop the download; HTML error pages are never
+saved as ROM ZIPs. There is no guaranteed anonymous quota bypass. Use a mirror,
+wait for Drive's quota to reset, or make a permitted copy in your own Drive
+account and share that file. See [Google's download guidance](https://support.google.com/drive/answer/2423534?hl=en).
+
+For the toolbuild GitHub mirror, pass the direct download URL of its
+`*.zip.download.json` asset. The porter streams the release parts in manifest
+order into the original ZIP and checks every part and the full ZIP against
+SHA256 before unpacking. No second ZIP archive is created:
+
+```bash
+./port.sh --stock /path/to/stock.zip \
+  --hyperos 'https://github.com/OWNER/REPO/releases/download/TAG/ROM.zip.download.json'
+```
+
+Interrupted downloads retain a `.part` file for diagnosis. Use a fresh work
+directory for the next attempt; these Python downloaders do not resume parts.
 
 For Ace 3V HyperOS 3 Android 15 or 16, use a matching stock ROM containing
 `system_ext`, or supply it separately with `--apex-stock`. The hardware
