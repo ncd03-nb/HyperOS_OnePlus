@@ -21,7 +21,7 @@ on:
         required: true
         type: string
       apex_stock_url:
-        description: "Matching APEX stock: system_ext for SDK36; system + system_ext for SDK35"
+        description: "Optional Android-matched stock ROM for system_ext APEX (Ace 3V Android 15/16)"
         required: false
         default: ""
         type: string

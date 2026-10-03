@@ -7,7 +7,8 @@ import subprocess
 import sys
 import tempfile
 import unittest
-import zipfile
+import hashlib
+import json
 from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
@@ -51,12 +52,6 @@ def fixture(root, sdk=36):
     }
     for rel, value in files.items():
         port.write(root / rel, value)
-    if sdk == 35:
-        # Structurally valid APEX fixture; no claim of a test signature.
-        with zipfile.ZipFile(root / 'system/system/apex/com.android.permission.apex', 'w') as archive:
-            archive.writestr('apex_manifest.pb', b'\x0a\x16com.android.permission\x10\x90\xef\xf1\xa7\x01')
-            archive.writestr('apex_pubkey', b'fixture public key')
-            archive.writestr('apex_payload.img', b'fixture payload')
     for part in (*port.PARTS, 'mi_ext'):
         paths = [root / part, *(root / part).rglob('*')]
         port.write(root / 'config' / (part + '_fs_config'), '/ 0 0 0755\n' + ''.join(
@@ -86,55 +81,85 @@ class PortFlowTests(unittest.TestCase):
         self.assertEqual(port.donor_name(self.root), 'mondrian')
         self.assertEqual(port.properties(self.root / 'product/etc/build.prop')['ro.product.mod_device'], 'mondrian_tw_global')
 
-    def test_a15_permission_replacement_preserves_signed_bytes_and_metadata(self):
-        port.set_props(self.root / 'system/system/build.prop', {'ro.build.version.sdk': '35'})
-        stock = Path(self.tmp.name) / 'stock15'
-        fixture(stock, 35)
-        relative = 'system/system/apex/com.android.permission.apex'
-        meta = port.Metadata(stock, 'system')
-        meta.fs[relative] = ['0', '2000', '0640', 'capabilities=0x0']
-        meta.ctx[relative] = ['u:object_r:fixture_apex_file:s0']
-        meta.save()
-        other = self.root / 'system/system/apex/com.android.unrelated.apex'
-        port.write(other, 'keep original module')
-        expected = (stock / relative).read_bytes()
-        seapp = self.root / 'system/system/etc/selinux/plat_seapp_contexts'
-        previous = seapp.read_text()
-        result = port.replace_permission_apex_a15(self.root, stock)
-        self.assertEqual((self.root / relative).read_bytes(), expected)
-        self.assertEqual(other.read_text(), 'keep original module')
-        self.assertEqual(result['removed_donor_variants'], ['com.google.android.permission_compressed.apex'])
-        actual = port.Metadata(self.root, 'system')
-        self.assertEqual(actual.fs[relative], meta.fs[relative])
-        self.assertEqual(actual.ctx[relative], meta.ctx[relative])
-        expected_mapping = previous.replace('seinfo=platform isPrivApp=true name=com.android.permissioncontroller',
-                                            'isPrivApp=true name=com.android.permissioncontroller')
-        self.assertEqual(seapp.read_text(), expected_mapping)
-        self.assertEqual(result['stock_privileged_controller_domain'], 'permissioncontroller_app')
-        self.assertNotIn('system/system/apex/com.google.android.permission_compressed.apex', actual.fs)
-        self.assertNotIn('system/system/apex/com.google.android.permission_compressed.apex', actual.ctx)
-        self.assertEqual(port.replace_permission_apex_a15(self.root, stock)['removed_donor_variants'], [])
-
-    def test_a15_permission_rejects_missing_or_wrong_module_before_mutation(self):
-        port.set_props(self.root / 'system/system/build.prop', {'ro.build.version.sdk': '35'})
-        stock = Path(self.tmp.name) / 'stock15'
-        fixture(stock, 35)
-        source = stock / 'system/system/apex/com.android.permission.apex'
+    def role_profile(self):
+        profile = Path(self.tmp.name) / 'roles_profile'
+        shutil.copytree(REPO / 'devices/OnePlusAce3V/android-35/permission_roles', profile)
+        descriptor = json.loads((profile / 'profile.json').read_text())
         donor = self.root / 'system/system/apex/com.google.android.permission_compressed.apex'
-        before = donor.read_bytes()
-        for manifest in (b'\x0a\x07invalid\x10\x01',
-                         b'\x0a\x16com.android.permission\x10\xb4\x82\x82\xac\x01'):
-            with zipfile.ZipFile(source, 'w') as archive:
-                archive.writestr('apex_manifest.pb', manifest)
-                archive.writestr('apex_pubkey', 'fixture')
-                archive.writestr('apex_payload.img', 'fixture')
-            with self.assertRaisesRegex(ValueError, 'version 35'):
-                port.replace_permission_apex_a15(self.root, stock)
-            self.assertEqual(donor.read_bytes(), before)
-        source.unlink()
-        with self.assertRaisesRegex(ValueError, 'must include system and system_ext'):
-            port.replace_permission_apex_a15(self.root, stock)
-        self.assertEqual(donor.read_bytes(), before)
+        descriptor['donor_sha256'] = hashlib.sha256(donor.read_bytes()).hexdigest()
+        port.write(profile / 'profile.json', json.dumps(descriptor))
+        port.set_props(self.root / 'system/system/build.prop', {'ro.build.version.sdk': '35'})
+        return profile
+
+    def test_a15_role_overlay_preserves_module_security_and_metadata(self):
+        profile = self.role_profile()
+        donor = self.root / 'system/system/apex/com.google.android.permission_compressed.apex'
+        seapp = self.root / 'system/system/etc/selinux/plat_seapp_contexts'
+        init = self.root / 'system/system/etc/init/hw/init.rc'
+        before = [file.read_bytes() for file in (donor, seapp, init)]
+        original_metadata = port.Metadata(self.root, 'system_ext')
+        original_system = (self.root / 'config/system_fs_config').read_bytes()
+        config = self.root / 'system_ext/overlay/config/config.xml'
+        port.write(config, '<config><overlay package="another.overlay" enabled="false" mutable="true"/></config>')
+        report = port.install_a15_permission_role_overlay(self.root, profile)
+        self.assertTrue(report['role_overlay_applied'])
+        self.assertEqual(report['min_sdk'], 37)
+        self.assertEqual(report['overlay_target_sdk'], 28)
+        self.assertEqual([file.read_bytes() for file in (donor, seapp, init)], before)
+        self.assertEqual(report['scanned_partition'], 'system_ext')
+        self.assertEqual((self.root / 'config/system_fs_config').read_bytes(), original_system)
+        self.assertFalse((self.root / 'system/system/overlay').exists())
+        meta = port.Metadata(self.root, 'system_ext')
+        key = 'system_ext/overlay/Ace3vPermissionRoles/Ace3vPermissionRoles.apk'
+        self.assertEqual(meta.fs[key], ['0', '0', '0644'])
+        self.assertEqual(meta.ctx[key], ['u:object_r:system_file:s0'])
+        for table, current in ((original_metadata.fs, meta.fs), (original_metadata.ctx, meta.ctx)):
+            for key, value in table.items():
+                self.assertEqual(current[key], value)
+        self.assertIn('package="another.overlay" enabled="false" mutable="true"', config.read_text())
+        self.assertIn('enabled="true" mutable="false"', config.read_text())
+
+    def test_a15_role_overlay_migrates_known_r6_file_without_removing_other_files(self):
+        profile = self.role_profile()
+        legacy = self.root / 'system/system/overlay/Ace3vPermissionRoles/Ace3vPermissionRoles.apk'
+        legacy.parent.mkdir(parents=True)
+        shutil.copy2(profile / 'Ace3vPermissionRoles.apk', legacy)
+        other = legacy.parent.parent / 'another.apk'
+        other.write_bytes(b'preserved overlay')
+        meta = port.Metadata(self.root, 'system')
+        meta.pin('system/overlay', mode='0755')
+        meta.pin('system/overlay/Ace3vPermissionRoles', mode='0755')
+        meta.pin('system/overlay/Ace3vPermissionRoles/Ace3vPermissionRoles.apk')
+        meta.save()
+        report = port.install_a15_permission_role_overlay(self.root, profile)
+        self.assertFalse(legacy.exists())
+        self.assertFalse(legacy.parent.exists())
+        self.assertEqual(other.read_bytes(), b'preserved overlay')
+        self.assertNotIn(legacy.relative_to(self.root).as_posix(), port.Metadata(self.root, 'system').fs)
+        self.assertEqual((self.root / report['installed_path']).read_bytes(),
+                         (profile / 'Ace3vPermissionRoles.apk').read_bytes())
+        # With no partition config, the signed immutable manifest remains the default.
+        self.assertFalse((self.root / 'system_ext/overlay/config/config.xml').exists())
+
+    def test_a15_role_overlay_unknown_donor_is_untouched(self):
+        port.set_props(self.root / 'system/system/build.prop', {'ro.build.version.sdk': '35'})
+        before = (self.root / 'config/system_fs_config').read_bytes()
+        report = port.install_a15_permission_role_overlay(
+            self.root, REPO / 'devices/OnePlusAce3V/android-35/permission_roles')
+        self.assertFalse(report['role_overlay_applied'])
+        self.assertEqual((self.root / 'config/system_fs_config').read_bytes(), before)
+        self.assertFalse((self.root / 'system/system/overlay').exists())
+        self.assertFalse((self.root / 'system_ext/overlay').exists())
+
+    def test_a15_role_overlay_tampered_asset_is_rejected_before_changes(self):
+        profile = self.role_profile()
+        (profile / 'Ace3vPermissionRoles.apk').write_bytes(b'tampered')
+        before = (self.root / 'config/system_fs_config').read_bytes()
+        with self.assertRaisesRegex(ValueError, 'profile hash'):
+            port.install_a15_permission_role_overlay(self.root, profile)
+        self.assertEqual((self.root / 'config/system_fs_config').read_bytes(), before)
+        self.assertFalse((self.root / 'system/system/overlay').exists())
+        self.assertFalse((self.root / 'system_ext/overlay').exists())
 
     def test_android15_keeps_enforcing_secure_shell_even_with_legacy_force_flag(self):
         port.set_props(self.root / 'system/system/build.prop', {'ro.build.version.sdk': '35'})
@@ -149,8 +174,8 @@ class PortFlowTests(unittest.TestCase):
         compile_mock.assert_called_once_with(self.root, 'secilc', enforcing=True)
         self.assertFalse(report['force_adb'])
         self.assertTrue(report['secure_boot_adb'])
-        self.assertEqual(report['permission_apex']['version'], 352090000)
-        self.assertFalse((self.root / 'system/system/apex/com.google.android.permission_compressed.apex').exists())
+        self.assertTrue(report['permission_roles']['original_permission_module_preserved'])
+        self.assertTrue((self.root / 'system/system/apex/com.google.android.permission_compressed.apex').exists())
         props = port.properties(self.root / 'system/system/etc/prop.default')
         self.assertEqual([props[k] for k in ('ro.debuggable', 'ro.secure', 'ro.adb.secure')], ['0', '1', '1'])
         init = (self.root / 'system/system/etc/init/ace3v-port.rc').read_text()

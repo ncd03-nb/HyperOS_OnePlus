@@ -1,0 +1,17 @@
+{
+  "donor_file": "com.google.android.permission_compressed.apex",
+  "donor_sha256": "7c3edc915b9c6c5955a6e82bfb731b4f4523fd4e50d22d000665d8557441e3bb",
+  "overlay_file": "Ace3vPermissionRoles.apk",
+  "overlay_sha256": "170263a9c881e1fd24c8059ba9cb72341c648689350b3109a5e3265336ee16bb",
+  "target_package": "com.google.android.permissioncontroller",
+  "target_resource": "xml/roles",
+  "guarded_permission": "android.permission.REPOSITION_SELF_WINDOWS",
+  "min_sdk": 37,
+  "overlay_target_sdk": 28,
+  "immutable": true,
+  "installed_partition": "system_ext",
+  "installed_path": "system_ext/overlay/Ace3vPermissionRoles/Ace3vPermissionRoles.apk",
+  "runtime_boot_verified": true,
+  "runtime_overlay_activation_verified": true,
+  "runtime_verified_build": "local Ace3V Android15 R7, 2026-10-03; hardware not fully verified"
+}

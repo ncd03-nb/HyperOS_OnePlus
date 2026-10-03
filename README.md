@@ -55,8 +55,7 @@ optional manual override (for example, `OnePlus13`).
 `out/`.
 
 For Ace 3V HyperOS 3 Android 15 or 16, use a matching stock ROM containing
-`system_ext`, or supply it separately with `--apex-stock`. Android 15 also
-requires that source's `system` partition for its signed Permission APEX. The hardware
+`system_ext`, or supply it separately with `--apex-stock`. The hardware
 `vendor`/`odm` still come from `--stock`; the APEX source must match the
 donor's Android SDK. See [the Android 15 enforcing flow](docs/ace3v-android15.md)
 or [the Android 16 flow](docs/ace3v-android16.md) for the

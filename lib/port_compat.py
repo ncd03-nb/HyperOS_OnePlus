@@ -11,9 +11,6 @@ import re
 import shutil
 import subprocess
 import xml.etree.ElementTree as ET
-import zipfile
-
-from payload_extractor import _iter_fields
 
 PARTS = ('system', 'system_ext', 'product', 'vendor', 'odm')
 
@@ -204,64 +201,65 @@ def replace_apex(root, stock):
     return {file.name: hashlib.sha256(file.read_bytes()).hexdigest() for file in files}
 
 
-def replace_permission_apex_a15(root, stock):
-    """Use the original SDK35 Permission module, including its signed role resources."""
-    if sdk(root) != 35 or stock is None or sdk(stock) != 35:
-        raise ValueError('Android 15 Permission APEX requires an SDK35 stock tree')
-    relative = 'system/system/apex/com.android.permission.apex'
-    source = stock / relative
-    if not source.is_file():
-        raise ValueError('Android 15 requires stock system/apex/com.android.permission.apex; '
-                         '--apex-stock must include system and system_ext with metadata')
-    src, dst = Metadata(stock, 'system'), Metadata(root, 'system')
-    if relative not in src.fs or relative not in src.ctx:
-        raise ValueError('Missing source Permission APEX fs_config/file_contexts')
-    with zipfile.ZipFile(source) as archive:
-        if archive.testzip() is not None:
-            raise ValueError('Corrupt stock Permission APEX')
-        if not {'apex_manifest.pb', 'apex_pubkey', 'apex_payload.img'} <= set(archive.namelist()):
-            raise ValueError('Stock Permission must be an original uncompressed APEX')
-        fields = dict((field, value) for field, wire, value in
-                      _iter_fields(archive.read('apex_manifest.pb')) if field in (1, 2))
-        if fields.get(1) != b'com.android.permission' or not 350000000 <= fields.get(2, 0) < 360000000:
-            raise ValueError('Stock Permission APEX must identify com.android.permission version 35xxxxxxx')
-    digest = hashlib.sha256(source.read_bytes()).hexdigest()
-    seapp = root / 'system/system/etc/selinux/plat_seapp_contexts'
-    lines = seapp.read_text('utf-8').splitlines()
-    matches = []
-    for index, line in enumerate(lines):
-        words = line.split()
-        if 'name=com.android.permissioncontroller' in words and not line.lstrip().startswith('#'):
-            if not {'user=_app', 'isPrivApp=true', 'domain=permissioncontroller_app'} <= set(words):
-                raise ValueError('Unexpected stock PermissionController seapp mapping')
-            matches.append(index)
-            # The stock APK is signed by Oplus, not the Xiaomi platform key.
-            # Apply the same exact privileged-package matching used for Google's
-            # controller. Keep the existing confined domain and policy rules.
-            lines[index] = ' '.join(word for word in words if word != 'seinfo=platform')
-    if len(matches) != 1:
-        raise ValueError('Expected one PermissionController seapp mapping')
-    folder = root / 'system/system/apex'
-    variants = [path for path in folder.iterdir() if re.fullmatch(
-        r'com\.(?:android|google\.android)\.permission(?:_compressed)?\.(?:apex|capex)', path.name)]
-    # Validate all inputs before replacing a donor module. Other APEXes stay intact.
+def install_a15_permission_role_overlay(root, profile):
+    """Guard one unsupported role permission without changing signed mainline modules."""
+    if sdk(root) != 35:
+        raise ValueError('The Permission role overlay is restricted to SDK35')
+    descriptor = json.loads((profile / 'profile.json').read_text('utf-8'))
+    module = root / 'system/system/apex' / descriptor['donor_file']
+    report = {'original_permission_module_preserved': True, 'known_donor_matched': False,
+              'role_overlay_applied': False}
+    if not module.is_file() or hashlib.sha256(module.read_bytes()).hexdigest() != descriptor['donor_sha256']:
+        return report
+    overlay = profile / descriptor['overlay_file']
+    if hashlib.sha256(overlay.read_bytes()).hexdigest() != descriptor['overlay_sha256']:
+        raise ValueError('Android 15 Permission role overlay does not match its profile hash')
+    # PackagePartitions marks /system containsOverlay=false. system_ext is
+    # scanned and its preinstalled packages retain the system-package flag.
+    relative = 'system_ext/overlay/Ace3vPermissionRoles/' + descriptor['overlay_file']
+    legacy_relative = 'system/system/overlay/Ace3vPermissionRoles/' + descriptor['overlay_file']
+    legacy = root / legacy_relative
+    if legacy.is_file() and hashlib.sha256(legacy.read_bytes()).hexdigest() != descriptor['overlay_sha256']:
+        raise ValueError('Refusing to replace an unrecognized legacy Permission role overlay')
     target = root / relative
-    shutil.copy2(source, target)
-    removed = []
-    for path in variants:
-        if path != target:
-            path.unlink()
-            removed.append(path.name)
-            key = path.relative_to(root).as_posix()
-            dst.fs.pop(key, None)
-            dst.ctx.pop(key, None)
-    dst.fs[relative], dst.ctx[relative] = src.fs[relative], src.ctx[relative]
-    dst.save()
-    write(seapp, '\n'.join(lines) + '\n')
-    return {'name': 'com.android.permission', 'version': fields[2], 'file': relative,
-            'sha256': digest, 'removed_donor_variants': removed,
-            'source_metadata_preserved': True, 'original_signed_bytes_preserved': True,
-            'stock_privileged_controller_domain': 'permissioncontroller_app'}
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(overlay, target)
+    meta = Metadata(root, 'system_ext')
+    for path in ('overlay', 'overlay/Ace3vPermissionRoles'):
+        if 'system_ext/' + path not in meta.fs:
+            meta.pin(path, mode='0755')
+    meta.pin(relative.removeprefix('system_ext/'))
+    meta.save()
+    if legacy.is_file():
+        legacy.unlink()
+        old_meta = Metadata(root, 'system')
+        old_meta.fs.pop(legacy_relative, None)
+        old_meta.ctx.pop(legacy_relative, None)
+        for directory in (legacy.parent, legacy.parent.parent):
+            if directory.is_dir() and not any(directory.iterdir()):
+                directory.rmdir()
+                key = directory.relative_to(root).as_posix()
+                old_meta.fs.pop(key, None)
+                old_meta.ctx.pop(key, None)
+        old_meta.save()
+    config = root / 'system_ext/overlay/config/config.xml'
+    if config.is_file():
+        tree = ET.parse(config)
+        package = 'vn.nothings.ace3v.permission.roles.a15'
+        entries = [node for node in tree.getroot().findall('overlay') if node.get('package') == package]
+        if not entries:
+            entries.append(ET.SubElement(tree.getroot(), 'overlay', {'package': package}))
+        for entry in entries:
+            entry.set('enabled', 'true')
+            entry.set('mutable', 'false')
+        write(config, ET.tostring(tree.getroot(), encoding='unicode') + '\n')
+    report.update(known_donor_matched=True, role_overlay_applied=True,
+                  module_sha256=descriptor['donor_sha256'], overlay_sha256=descriptor['overlay_sha256'],
+                  guarded_permission=descriptor['guarded_permission'], min_sdk=descriptor['min_sdk'],
+                  overlay_target_sdk=descriptor['overlay_target_sdk'], immutable=True,
+                  installed_path=relative, scanned_partition='system_ext',
+                  legacy_system_overlay_removed=not legacy.exists())
+    return report
 
 
 def force_adb(root, assets, ace16=False):
@@ -510,7 +508,8 @@ def finish(root, device, stock, assets, adb=False, compiler='secilc'):
             shutil.rmtree(provision / folder, ignore_errors=True)
     if ace_full:
         if ace15:
-            report['permission_apex'] = replace_permission_apex_a15(root, stock)
+            report['permission_roles'] = install_a15_permission_role_overlay(
+                root, assets.parent / 'devices/OnePlusAce3V/android-35/permission_roles')
         report['apex'] = replace_apex(root, stock)
         profile = assets.parent / f'devices/OnePlusAce3V/android-{sdk(root)}'
         name = donor_name(root)
