@@ -11,6 +11,7 @@ import re
 import shutil
 import subprocess
 import xml.etree.ElementTree as ET
+import zipfile
 
 PARTS = ('system', 'system_ext', 'product', 'vendor', 'odm')
 
@@ -34,6 +35,93 @@ def set_props(path, values, strip_imports=False):
              and not (strip_imports and re.match(r'^\s*import\s', line))]
     write(path, '\n'.join(lines).rstrip() + '\n' +
           ''.join(f'{key}={value}\n' for key, value in values.items()))
+
+
+def align_a14_arm64_abi(root):
+    """Keep Xiaomi's fake32 lookup consistent with the Ace 3V arm64 base.
+
+    SDK34 PackageAbiHelper tries the donor's ro.system ABI32 list even with
+    fake32 disabled, then indexes the empty runtime ABI32 list for multiArch
+    APKs. Do not advertise 32-bit support to work around that scan crash.
+    """
+    vendor = properties(root / 'vendor/build.prop')
+    # Init loads ODM after vendor; Ace 3V's ODM profile overrides its ABI and
+    # zygote settings. Validate the effective hardware properties.
+    vendor.update(properties(root / 'odm/build.prop'))
+    vendor.update(properties(root / 'odm/etc/build.prop'))
+    if (vendor.get('ro.vendor.product.cpu.abilist') != 'arm64-v8a'
+            or vendor.get('ro.vendor.product.cpu.abilist32', '')
+            or vendor.get('ro.vendor.product.cpu.abilist64') != 'arm64-v8a'):
+        raise ValueError('Ace 3V SDK34 ABI fix requires an arm64-only vendor base')
+    values = {'ro.system.product.cpu.abilist': 'arm64-v8a',
+              'ro.system.product.cpu.abilist32': '',
+              'ro.system.product.cpu.abilist64': 'arm64-v8a'}
+    path = root / 'system/system/build.prop'
+    before = properties(path)
+    set_props(path, values)
+    return {'before': {key: before.get(key) for key in values}, 'after': values}
+
+
+def install_a14_stock_gms(root, stock, profile):
+    """Keep the SDK34 Google container, factory modules and GSF together."""
+    if sdk(root) != 34:
+        raise ValueError('Stock Google bundle fix requires SDK34')
+    if not (root / 'product/priv-app/GmsCore/GmsCore.apk').is_file():
+        return {'installed': False, 'reason': 'Donor has no GmsCore'}
+    descriptor = json.loads((profile / 'google_stock.json').read_text('utf-8'))
+    if descriptor['sdk'] != 34:
+        raise ValueError('Google bundle profile SDK mismatch')
+    if stock is None:
+        raise ValueError('SDK34 GMS repair requires matching stock my_bigball')
+    verified = []
+    # Validate the complete bundle before modifying any donor files.
+    for entry in descriptor['files']:
+        source = stock / entry['source']
+        if not source.is_file():
+            raise ValueError('No verified SDK34 Google bundle file: ' + str(source))
+        payload = None
+        if 'apk_entry' in entry:
+            # The factory container accepts loose modules in m/container. Keep
+            # the signed APK intact and stage its own embedded module bytes.
+            with zipfile.ZipFile(source) as archive:
+                payload = archive.read(entry['apk_entry'])
+            digest = hashlib.sha256(payload).hexdigest()
+        else:
+            digest = hashlib.sha256(source.read_bytes()).hexdigest()
+        if digest != entry['sha256']:
+            raise ValueError('No verified SDK34 Google bundle file: ' + str(source))
+        verified.append((entry, source, payload))
+    prefixes = ('product/priv-app/GmsCore', 'product/priv-app/AndroidPlatformServices',
+                'system_ext/priv-app/GoogleServicesFramework')
+    metadata = {part: Metadata(root, part) for part in ('product', 'system_ext')}
+    for prefix in prefixes:
+        shutil.rmtree(root / prefix, ignore_errors=True)
+        meta = metadata[prefix.split('/')[0]]
+        for values in (meta.fs, meta.ctx):
+            for key in list(values):
+                if key == prefix or key.startswith(prefix + '/'):
+                    del values[key]
+    for entry, source, payload in verified:
+        target = root / entry['target']
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if payload is None:
+            shutil.copy2(source, target)
+        else:
+            target.write_bytes(payload)
+        part, relative = entry['target'].split('/', 1)
+        meta = metadata[part]
+        meta.pin(relative)
+        parent = Path(relative).parent
+        while str(parent) not in ('.', 'priv-app'):
+            meta.pin(parent.as_posix(), mode='0755')
+            parent = parent.parent
+    for meta in metadata.values():
+        meta.save()
+    return {'installed': True, 'stock': descriptor['stock'],
+            'gms_version': descriptor['gms_version'], 'gsf_version': descriptor['gsf_version'],
+            'files': descriptor['files'], 'obsolete_standalone_sidecar_removed': True,
+            'preinstalled_chimera_modules': sum('apk_entry' in entry for entry in descriptor['files']),
+            'precompiled_app_cache_removed': True}
 
 
 def sdk(root):
@@ -177,7 +265,7 @@ def assemble(root, ace16):
 
 def replace_apex(root, stock):
     if not stock or sdk(stock) != sdk(root):
-        release = {35: 15, 36: 16, 37: 17}.get(sdk(root), sdk(root))
+        release = {34: 14, 35: 15, 36: 16, 37: 17}.get(sdk(root), sdk(root))
         raise ValueError(f'Ace 3V Android {release} requires Android {release} stock system_ext APEX; '
                          'use --apex-stock with a matching ROM/extracted tree')
     source = stock / 'system_ext/apex'
@@ -223,6 +311,32 @@ def remove_optional_oem_bind_wait(root):
     if changed:
         path.write_bytes(b''.join(lines))
     return changed
+
+
+def install_a14_securitycenter_permissions(root, profile):
+    """Grant the SDK34 boot-blocking permission on the APK's own partition."""
+    if sdk(root) != 34:
+        raise ValueError('SecurityCenter SDK34 allowlist is restricted to SDK34')
+    if not (root / 'product/priv-app/MIUISecurityCenter').is_dir():
+        return {'installed': False, 'reason': 'Product SecurityCenter is absent'}
+    relative = 'product/etc/permissions/privapp-permissions-ace3v-a14.xml'
+    source = profile / 'files' / relative
+    tree = ET.parse(source)
+    grants = tree.getroot().findall('privapp-permissions')
+    permission = 'android.permission.READ_WALLPAPER_INTERNAL'
+    if (tree.getroot().tag != 'permissions' or len(grants) != 1
+            or grants[0].get('package') != 'com.miui.securitycenter'
+            or len(grants[0]) != 1 or grants[0][0].tag != 'permission'
+            or grants[0][0].get('name') != permission):
+        raise ValueError('Unexpected SecurityCenter permission profile')
+    target = root / relative
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source, target)
+    meta = Metadata(root, 'product')
+    meta.pin(relative.removeprefix('product/'))
+    meta.save()
+    return {'installed': True, 'package': 'com.miui.securitycenter',
+            'permission': permission, 'path': relative}
 
 
 def install_a15_permission_role_overlay(root, profile):
@@ -287,9 +401,9 @@ def install_a15_permission_role_overlay(root, profile):
 
 
 def force_adb(root, assets, ace16=False):
-    # SDK35 uses the verified no-auth daemon while preserving shell privileges.
-    if sdk(root) == 35:
-        return install_a15_noauth_adb(root, assets)
+    # SDK34/35 use verified no-auth daemons while preserving shell privileges.
+    if sdk(root) in (34, 35):
+        return install_noauth_boot_adb(root, assets)
     debug = {'ro.debuggable': '1', 'ro.secure': '0', 'ro.adb.secure': '0'}
     prop_default = root / 'system/system/etc/prop.default'
     if ace16:
@@ -368,9 +482,9 @@ def secure_adb(root, assets, ace16=False):
     set_props(root / 'vendor/build.prop', {'persist.vendor.usb.config': 'adb'})
     forced = root / 'system/system/etc/init/hyperos_force_adb.rc'
     forced.parent.mkdir(parents=True, exist_ok=True)
-    ace15 = sdk(root) == 35
-    shutil.copy2(assets / ('hyperos_early_adb_a15.rc' if ace15 else 'hyperos_force_adb.rc'), forced)
-    if ace15:
+    early_adb = sdk(root) in (34, 35)
+    shutil.copy2(assets / ('hyperos_early_adb_a15.rc' if early_adb else 'hyperos_force_adb.rc'), forced)
+    if early_adb:
         remove_adb_property_resets(root)
         usb = root / 'system/system/etc/init/hw/init.usb.rc'
         if usb.exists():
@@ -381,17 +495,18 @@ def secure_adb(root, assets, ace16=False):
         meta.save()
 
 
-def install_a15_noauth_adb(root, assets):
+def install_noauth_boot_adb(root, assets):
     """Use the tested auth-only patch; leave the signed APEX and UID drop intact."""
-    profile = assets.parent / 'devices/OnePlusAce3V/android-35/boot_adb'
+    version = sdk(root)
+    profile = assets.parent / f'devices/OnePlusAce3V/android-{version}/boot_adb'
     descriptor = json.loads((profile / 'profile.json').read_text('utf-8'))
     apex = root / 'system/system/apex' / descriptor['donor_file']
     if not apex.is_file() or hashlib.sha256(apex.read_bytes()).hexdigest() != descriptor['donor_sha256']:
-        raise ValueError('No verified Android 15 no-auth adbd profile for this donor APEX; '
+        raise ValueError('No verified no-auth adbd profile for this donor APEX; '
                          'refusing to install an incompatible daemon')
     daemon = profile / 'ace3v-adbd'
     if hashlib.sha256(daemon.read_bytes()).hexdigest() != descriptor['patched_sha256']:
-        raise ValueError('Android 15 no-auth adbd profile hash mismatch')
+        raise ValueError('No-auth adbd profile hash mismatch')
     secure_adb(root, assets, ace16=True)
     for rel in ('system/system/etc/prop.default', 'system/system/build.prop'):
         set_props(root / rel, {'ro.adb.secure': '0', 'ro.secure': '1', 'ro.debuggable': '0'})
@@ -428,7 +543,7 @@ def install_a15_noauth_adb(root, assets):
             'donor_apex_sha256': descriptor['donor_sha256']}
 
 
-def remove_a15_setupwizard(root):
+def remove_setupwizard(root):
     """Remove the full donor wizard, keeping the minimal Provision fallback."""
     removed = []
     for part, prefix in (('system', 'system/system'), ('system_ext', 'system_ext'),
@@ -456,7 +571,7 @@ def remove_a15_setupwizard(root):
     return removed
 
 
-def harden_a15_init(root):
+def harden_enforcing_init(root):
     """Remove donor-only root shell hooks without changing core root daemons."""
     path = root / 'system_ext/etc/init/init.miui.ext.rc'
     if path.exists():
@@ -468,7 +583,7 @@ def harden_a15_init(root):
         write(path, text)
     profiler = root / 'system/system/etc/init/simpleperf.rc'
     if profiler.exists():
-        write(profiler, '# Root boot profiling is disabled in the Android 15 enforcing port.\n')
+        write(profiler, '# Root boot profiling is disabled in the enforcing port.\n')
     ftm = root / 'vendor/etc/init/hw/vendor.oem_ftm_svc_disable.rc'
     if ftm.exists():
         text = ftm.read_text('utf-8')
@@ -592,23 +707,27 @@ def compile_policy(root, compiler='secilc', enforcing=False):
 
 
 def finish(root, device, stock, assets, adb=False, compiler='secilc'):
+    ace14 = device == 'OnePlusAce3V' and sdk(root) == 34
     ace15 = device == 'OnePlusAce3V' and sdk(root) == 35
     ace16 = device == 'OnePlusAce3V' and sdk(root) == 36
-    ace_full = ace15 or ace16
+    ace_enforcing = ace14 or ace15
+    ace_full = ace_enforcing or ace16
     report = {'device': device, 'donor_sdk': sdk(root), 'ace3v_android16': ace16,
-              'ace3v_android15': ace15,
-              'force_adb': adb and not ace15, 'secure_boot_adb': ace16 and not adb,
-              'noauth_boot_adb': ace15,
+              'ace3v_android15': ace15, 'ace3v_android14': ace14,
+              'force_adb': adb and not ace_enforcing, 'secure_boot_adb': ace16 and not adb,
+              'noauth_boot_adb': ace_enforcing,
               'crypto_log_wrapper': False}
     # The replacement Provision APK must never use donor/ref Android 13 JNI/oat.
     provision = root / 'system_ext/priv-app/Provision'
     if provision.exists():
         for folder in ('oat', 'lib'):
             shutil.rmtree(provision / folder, ignore_errors=True)
+    if device == 'OnePlusAce3V':
+        report['optional_oem_bind_wait_removed'] = remove_optional_oem_bind_wait(root)
     if ace_full:
+        if ace_enforcing:
+            report['setupwizard_removed'] = remove_setupwizard(root)
         if ace15:
-            report['optional_oem_bind_wait_removed'] = remove_optional_oem_bind_wait(root)
-            report['setupwizard_removed'] = remove_a15_setupwizard(root)
             report['permission_roles'] = install_a15_permission_role_overlay(
                 root, assets.parent / 'devices/OnePlusAce3V/android-35/permission_roles')
         report['apex'] = replace_apex(root, stock)
@@ -652,6 +771,13 @@ def finish(root, device, stock, assets, adb=False, compiler='secilc'):
                           'ro.product.name_for_attestation': name, 'ro.product.device_for_attestation': name})
         set_props(root / 'odm/build.prop', odm_values, strip_imports=True)
         shutil.copy2(root / 'odm/build.prop', root / 'odm/etc/build.prop')
+        if ace14:
+            report['arm64_abi'] = align_a14_arm64_abi(root)
+            report['securitycenter_permissions'] = install_a14_securitycenter_permissions(root, profile)
+            from a14_runtime_fixes import disable_xiaomi_vonr_query
+            report['xiaomi_vonr_ui_query'] = disable_xiaomi_vonr_query(
+                root / 'system_ext/framework/miui-framework.jar')
+            report['google_stock'] = install_a14_stock_gms(root, stock, profile)
         write(root / 'system_ext/etc/init/init.qseelogd.rc', '')
         set_props(root / 'system_ext/etc/build.prop', {'persist.sys.qseelogd': 'false'})
         for rel in ('product/priv-app/XiaomiEUExt',):
@@ -684,7 +810,7 @@ def finish(root, device, stock, assets, adb=False, compiler='secilc'):
                           '\n/system/bin/ace3v-hardware -- u:object_r:ace3v_port_exec:s0\n')
             (root / 'system/system/bin/ace3v-skip-setup.sh').unlink(missing_ok=True)
             cil = root / 'vendor/etc/selinux/vendor_sepolicy.cil'
-            marker = '\n; Ace 3V Android 15 service policy\n'
+            marker = f'\n; Ace 3V Android {14 if ace14 else 15} service policy\n'
             write(cil, cil.read_text('utf-8').split(marker)[0].rstrip() + marker +
                   (profile / 'port.cil').read_text('utf-8'))
         meta.pin('system/etc/init/ace3v-port.rc')
@@ -709,10 +835,10 @@ def finish(root, device, stock, assets, adb=False, compiler='secilc'):
         else:
             report['boringssl_reboot_guards_removed'] = 0
             report['boringssl_tests'] = 'Original binaries and reboot guards retained'
-            harden_a15_init(root)
-            report['boot_adb'] = install_a15_noauth_adb(root, assets)
+            harden_enforcing_init(root)
+            report['boot_adb'] = install_noauth_boot_adb(root, assets)
             report['selinux'] = compile_policy(root, compiler, enforcing=True)
-    if adb and not ace15:
+    if adb and not ace_enforcing:
         force_adb(root, assets, ace16=ace16)
     elif ace16:
         secure_adb(root, assets, ace16=True)
@@ -733,7 +859,7 @@ def main():
     if args.stage == 'sdk':
         print(sdk(args.work))
     elif args.stage == 'assemble':
-        assemble(args.work, args.device == 'OnePlusAce3V' and sdk(args.work) in (35, 36))
+        assemble(args.work, args.device == 'OnePlusAce3V' and sdk(args.work) in (34, 35, 36))
     else:
         assets = Path(__file__).resolve().parent.parent / 'fixes'
         report = finish(args.work, args.device, args.apex_stock, assets,

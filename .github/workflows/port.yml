@@ -21,7 +21,7 @@ on:
         required: true
         type: string
       apex_stock_url:
-        description: "Optional Android-matched stock ROM for system_ext APEX (Ace 3V Android 15/16)"
+        description: "Optional Android-matched stock ROM for system_ext APEX (Ace 3V Android 14/15/16)"
         required: false
         default: ""
         type: string
@@ -51,7 +51,7 @@ on:
         default: ""
         type: string
       force_adb:
-        description: "Enable development ADB (SDK35 already uses no-auth ADB with shell UID2000)"
+        description: "Enable development ADB (SDK34/35 already use no-auth ADB with shell UID2000)"
         required: false
         default: false
         type: boolean

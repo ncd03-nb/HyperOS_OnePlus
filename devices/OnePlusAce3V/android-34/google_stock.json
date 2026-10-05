@@ -1,0 +1,72 @@
+{
+  "sdk": 34,
+  "stock": "PJF110_14.0.1.720(CN01)",
+  "gms_version": "24.21.13 (190400-638380824)",
+  "gsf_version": "14-10347885",
+  "google_signer_sha256": "7ce83c1b71f3d572fed04c8d40c5cb10ff75e6d87d9df6fbd53f0468c2905053",
+  "files": [
+    {
+      "source": "my_bigball/priv-app/GmsCore/GmsCore.apk",
+      "target": "product/priv-app/GmsCore/GmsCore.apk",
+      "sha256": "5256ab9326d935ec3c0766d5d5fd387bcef3dd854e02b3100882414e24774cff"
+    },
+    {
+      "source": "my_bigball/priv-app/GmsCore/m/independent/AndroidPlatformServices.apk",
+      "target": "product/priv-app/GmsCore/m/independent/AndroidPlatformServices.apk",
+      "sha256": "2f2707d4cf95a46865ca262199203e0d3eeccc075eb71b90920051dbfb03f2cf"
+    },
+    {
+      "source": "my_bigball/non_overlay/priv-app/GoogleServicesFramework/GoogleServicesFramework.apk",
+      "target": "system_ext/priv-app/GoogleServicesFramework/GoogleServicesFramework.apk",
+      "sha256": "e12c09b9af8e97397b68a464ea5613033c0404471d5c8259906f24c4aaed8783"
+    },
+    {
+      "source": "my_bigball/priv-app/GmsCore/GmsCore.apk",
+      "apk_entry": "assets/chimera-modules/AdsDynamite.uncompressed.apk",
+      "target": "product/priv-app/GmsCore/m/container/AdsDynamite.uncompressed.apk",
+      "sha256": "a58abce4d94434bad0e0171423a276df7fba1614feed71679be68d5e9d1271ee"
+    },
+    {
+      "source": "my_bigball/priv-app/GmsCore/GmsCore.apk",
+      "apk_entry": "assets/chimera-modules/CronetDynamite.uncompressed.apk",
+      "target": "product/priv-app/GmsCore/m/container/CronetDynamite.uncompressed.apk",
+      "sha256": "5b10d2a2b2731c033a40462ddeb7257ee8b7c4c5488357cf2d0be627f5b6c8bf"
+    },
+    {
+      "source": "my_bigball/priv-app/GmsCore/GmsCore.apk",
+      "apk_entry": "assets/chimera-modules/DynamiteLoader.uncompressed.apk",
+      "target": "product/priv-app/GmsCore/m/container/DynamiteLoader.uncompressed.apk",
+      "sha256": "2cdeb75cbdd36f4ea367871ae19d97c056e1415720d069cb67bffaf712f95cc1"
+    },
+    {
+      "source": "my_bigball/priv-app/GmsCore/GmsCore.apk",
+      "apk_entry": "assets/chimera-modules/DynamiteModulesA.uncompressed.apk",
+      "target": "product/priv-app/GmsCore/m/container/DynamiteModulesA.uncompressed.apk",
+      "sha256": "5723317ea4af790d800e7a8e52d59c72d0758b4c14c166d07eec72e9305d5311"
+    },
+    {
+      "source": "my_bigball/priv-app/GmsCore/GmsCore.apk",
+      "apk_entry": "assets/chimera-modules/DynamiteModulesC.uncompressed.apk",
+      "target": "product/priv-app/GmsCore/m/container/DynamiteModulesC.uncompressed.apk",
+      "sha256": "a7c4464428fb5df0f12713f7b66e968f0c0a9002bbfe630b4d566a2c55c3bdf7"
+    },
+    {
+      "source": "my_bigball/priv-app/GmsCore/GmsCore.apk",
+      "apk_entry": "assets/chimera-modules/GoogleCertificates.uncompressed.apk",
+      "target": "product/priv-app/GmsCore/m/container/GoogleCertificates.uncompressed.apk",
+      "sha256": "b9e29c5902cba7e15021a0ad17b009480275dee4fcceaa0613845b9fab0a5dd2"
+    },
+    {
+      "source": "my_bigball/priv-app/GmsCore/GmsCore.apk",
+      "apk_entry": "assets/chimera-modules/MapsDynamite.uncompressed.apk",
+      "target": "product/priv-app/GmsCore/m/container/MapsDynamite.uncompressed.apk",
+      "sha256": "b012a5bfd077b94b1eff66da771770c2f08f3ac33405c0442fafcc3514539605"
+    },
+    {
+      "source": "my_bigball/priv-app/GmsCore/GmsCore.apk",
+      "apk_entry": "assets/chimera-modules/MeasurementDynamite.uncompressed.apk",
+      "target": "product/priv-app/GmsCore/m/container/MeasurementDynamite.uncompressed.apk",
+      "sha256": "4716296d707cda969d98f51e26a88c4b9fd21da2eddc8fbea46e6b7eda6328ef"
+    }
+  ]
+}

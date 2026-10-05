@@ -1,0 +1,15 @@
+{
+  "donor_file": "com.android.adbd.capex",
+  "donor_sha256": "bc3bf0e1619bf9d137a8f98a82708b0755783ba0f19148e08a5296bafd04ac22",
+  "original_sha256": "302dffe79fbba64ef5189b95aa3c29223cd52b78aa7526bddb6fb083c1b8c7cb",
+  "patched_sha256": "e0ff061c6da6291bfe8d8954bfffae82eacaa3099e97a2278fd91cad0166a0c5",
+  "patch_offset": "0xa21cc",
+  "original_instruction": "a0020034",
+  "replacement_instruction": "1f2003d5",
+  "shell_uid": 2000,
+  "selinux": "Enforcing",
+  "authentication": false,
+  "signed_apex_untouched": true,
+  "runtime_boot_verified": false,
+  "runtime_shell_uid_verified": false
+}

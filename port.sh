@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# HyperOS (2-4) -> OnePlus auto-porter (multi-device; see devices/).
+# HyperOS (1-4) -> OnePlus auto-porter (multi-device; see devices/).
 #   ./port.sh --stock <stock-rom> --hyperos <hyperos-rom> [--device <profile>]
 # Inputs: URL, zip (payload/raw/super), payload.bin, super.img or an unpacked directory.
 # Extracted trees require config/*_fs_config and config/*_file_contexts.
-# --apex-stock supplies matching system_ext APEX for Ace 3V SDK35/36.
-# SDK35 keeps SELinux enforcing and enables no-auth boot ADB (shell UID2000).
+# --apex-stock supplies matching system_ext APEX for Ace 3V SDK34/35/36.
+# SDK34 GMS donors also use the verified Android 14 my_bigball Google bundle.
+# SDK34/35 keep SELinux enforcing and enable no-auth boot ADB (shell UID2000).
 # SDK36 starts ADB securely by default; --force-adb enables its development mode.
 # --assemble-only performs assembly and policy compilation, skipping image packing.
 
@@ -70,7 +71,7 @@ if [ -n "$DEVICE" ]; then
     [ -f "$HERE/devices/$DEVICE/device.conf" ] || die "unknown device: $DEVICE (see devices/)"
 fi
 [ -n "$STOCK" ] || die "--stock is required (OnePlus stock ROM)"
-[ -n "$HOS4" ] || die "--hyperos is required (HyperOS 2-4 ROM)"
+[ -n "$HOS4" ] || die "--hyperos is required (HyperOS 1-4 ROM)"
 [ -x "$MKFS" ] || die "missing $MKFS"
 [ -x "$EXTRACT" ] || die "missing $EXTRACT"
 
@@ -447,21 +448,30 @@ MIEXT="$WORK/mi_ext"
 DONOR_SDK="$("$PY" "$HERE/lib/port_compat.py" sdk "$WORK")"
 ACE_FULL=0
 APEX_ROOT=""
-if [ "$DEVICE" = "OnePlusAce3V" ] && [[ "$DONOR_SDK" = "35" || "$DONOR_SDK" = "36" ]]; then
+if [ "$DEVICE" = "OnePlusAce3V" ] && [[ "$DONOR_SDK" = "34" || "$DONOR_SDK" = "35" || "$DONOR_SDK" = "36" ]]; then
     ACE_FULL=1
     load_device_config "$HERE/devices/$DEVICE/android-$DONOR_SDK/device.conf"
     # system_ext APEX comes from matching stock; system mainline modules stay
     # with the donor. Vendor/odm keep the requested hardware base.
     APEX_SRC="$STOCK_SRC"
     [ -z "$APEX_STOCK" ] || APEX_SRC="$(resolve_input "$APEX_STOCK" "$DL" apex_stock)"
-    get_images "$APEX_SRC" "$DL/apex_stock_img" apex_stock system_ext
+    APEX_PARTS=(system_ext)
+    if [ "$DONOR_SDK" = "34" ] && [ -f "$WORK/product/priv-app/GmsCore/GmsCore.apk" ]; then
+        # SDK34 login was blocked by the donor's invalid Chimera module set.
+        # The tested stock Google bundle resides in Ace 3V's my_bigball.
+        APEX_PARTS+=(my_bigball)
+    fi
+    get_images "$APEX_SRC" "$DL/apex_stock_img" apex_stock "${APEX_PARTS[@]}"
     APEX_ROOT="$WORK/_stock_apex"
     mkdir -p "$APEX_ROOT"
     unpack_erofs "$IMG_system_ext" "$APEX_ROOT"
+    if [ "${#APEX_PARTS[@]}" -gt 1 ]; then
+        unpack_erofs "$IMG_my_bigball" "$APEX_ROOT"
+    fi
     [ "$("$PY" "$HERE/lib/port_compat.py" sdk "$APEX_ROOT")" = "$DONOR_SDK" ] || die "stock APEX SDK does not match donor SDK $DONOR_SDK; supply a matching --apex-stock"
-    command -v secilc >/dev/null || die "Ace 3V SDK35/36 requires secilc (run requirements.sh)"
-    if [ "$DONOR_SDK" = "35" ]; then
-        command -v seinfo >/dev/null || die "Android 15 requires seinfo to verify zero permissive domains (run requirements.sh)"
+    command -v secilc >/dev/null || die "Ace 3V SDK34/35/36 requires secilc (run requirements.sh)"
+    if [[ "$DONOR_SDK" = "34" || "$DONOR_SDK" = "35" ]]; then
+        command -v seinfo >/dev/null || die "Android 14/15 requires seinfo to verify zero permissive domains (run requirements.sh)"
     fi
 fi
 printf '%s\n' "HyperOS / Android SDK $DONOR_SDK / OnePlus base" > "$HERE/build_info/rom_version.txt"

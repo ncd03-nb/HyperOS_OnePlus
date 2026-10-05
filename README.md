@@ -1,7 +1,7 @@
 # HyperOS port for OnePlus
 
 An auto-porter that builds a HyperOS ROM for OnePlus phones. It supports
-**HyperOS 2, 3 and 4** as the donor and combines it with a OnePlus stock ROM:
+**HyperOS 1, 2, 3 and 4** as the donor and combines it with a OnePlus stock ROM:
 
 - `vendor` and `odm` come from the **OnePlus stock ROM**, so the hardware stack
   stays OnePlus.
@@ -25,7 +25,7 @@ adding a device is a config file, not a code change.
 |--------|----------|--------|
 | **OnePlus 13** | `PJZ110` | ✅ Fully Supported |
 | **OnePlus 15** | `PLK110` | ⚠️ Supported but untested |
-| **OnePlus Ace 3V** | `PJF110` | HyperOS 3 / Android 16 boot confirmed via DSU; Android 17 uses the existing profile |
+| **OnePlus Ace 3V** | `PJF110` | HyperOS 1 / Android 14 and HyperOS 3 / Android 16 boot confirmed via DSU; Android 17 uses the existing profile |
 
 ## Requirements
 
@@ -115,9 +115,9 @@ Options:
 --work <dir>          working directory (default: work)
 --res <dir>           overlay directory (default: RES)
 --keep-work           keep the working tree instead of cleaning it up
---apex-stock <input>  separate Android-matched stock ROM/tree for Ace 3V SDK35/36 APEX
+--apex-stock <input>  separate Android-matched stock ROM/tree for Ace 3V SDK34/35/36
 --adb-key <public>    optionally authorize one adbkey.pub for authenticated ADB builds
---force-adb           development ADB; SDK35 already uses no-auth ADB with UID2000
+--force-adb           development ADB; SDK34/35 already use no-auth ADB with UID2000
 --assemble-only       assemble and compile policy without repacking images
 ```
 
@@ -241,6 +241,18 @@ shell UID2000 and SELinux Enforcing. The signed adbd APEX is unchanged; the
 tested daemon is bound into its namespace after APEX activation. The no-auth
 profile accepts only the recorded donor APEX hash and fails on unsupported
 versions. See [Android 15 boot ADB](devices/OnePlusAce3V/android-35/boot_adb/README.md).
+
+Ace 3V SDK34 uses the same enforcing assembly with its own Android 14 ADB
+profile and matching stock system_ext APEX. It skips the Android 15 role
+overlay. GMS donors also receive the hash-verified GMS/GSF bundle from
+`PJF110_14.0.1.720(CN01)` stock `my_bigball`, including eight unchanged embedded
+Chimera modules staged for the factory app in `GmsCore/m/container`.
+A Xiaomi VoNR query is corrected
+to avoid blocking SystemUI's network callbacks. See
+[Android 14 port notes](docs/ace3v-android14.md) for source requirements and
+the scope of device verification.
+All Ace 3V SDK flows remove `wait` only from optional OEM `my_*` bind mounts
+that retain `nofail`; required partition waits remain.
 
 ## RES overlays
 

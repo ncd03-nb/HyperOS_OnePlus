@@ -29,7 +29,9 @@ def fixture(root, sdk=36):
             'user=_app seinfo=platform domain=platform_app type=app_data_file levelFrom=user\n',
         'system/system/apex/com.google.android.permission_compressed.apex': 'donor permission',
         'system/system/apex/com.google.android.adbd_compressed.apex': 'donor adbd fixture',
+        'system/system/apex/com.android.adbd.capex': 'donor adbd SDK34 fixture',
         'product/etc/build.prop': f'ro.product.build.version.sdk={sdk}\n',
+        'product/priv-app/MIUISecurityCenter/MIUISecurityCenter.apk': 'donor SecurityCenter',
         'mi_ext/etc/build.prop': 'ro.product.mod_device=peridot\nro.mi.os.version.name=OS3.0\n',
         'mi_ext/system/bin/moved-service': 'executable',
         'mi_ext/system_ext/lib64/moved.so': 'library',
@@ -43,7 +45,10 @@ def fixture(root, sdk=36):
         'vendor/etc/init/boringssl_self_test.rc': 'service boringssl_self_test64_vendor /vendor/bin/boringssl_self_test64\n    oneshot\n    reboot_on_failure reboot,boringssl-self-check-failed\n',
         'system_ext/etc/init/miuserfs.rc': 'on property:ro.debuggable=1\n    start miuserfs\n',
         'system_ext/etc/build.prop': f'ro.system_ext.build.version.sdk={sdk}\n',
-        'vendor/build.prop': 'ro.product.vendor.device=OP5CFBL1\n',
+        'vendor/build.prop': 'ro.product.vendor.device=OP5CFBL1\n'
+            'ro.vendor.product.cpu.abilist=arm64-v8a\n'
+            'ro.vendor.product.cpu.abilist32=\n'
+            'ro.vendor.product.cpu.abilist64=arm64-v8a\n',
         'odm/build.prop': 'import /my_manifest/build.prop\nro.product.odm.model=PJF110\n',
         'odm/etc/build.prop': 'stock',
         'system_ext/priv-app/Provision/Provision.apk': 'old APK',
@@ -74,17 +79,102 @@ class PortFlowTests(unittest.TestCase):
         self.root = Path(self.tmp.name) / 'work'
         fixture(self.root)
 
-    def a15_assets(self):
+    def a15_assets(self, sdk=35):
+        port.set_props(self.root / 'system/system/build.prop', {'ro.build.version.sdk': str(sdk)})
         repository = Path(self.tmp.name) / 'repository'
         shutil.copytree(REPO / 'fixes', repository / 'fixes', dirs_exist_ok=True)
-        profile = repository / 'devices/OnePlusAce3V/android-35'
-        shutil.copytree(REPO / 'devices/OnePlusAce3V/android-35', profile, dirs_exist_ok=True)
+        profile = repository / f'devices/OnePlusAce3V/android-{sdk}'
+        shutil.copytree(REPO / f'devices/OnePlusAce3V/android-{sdk}', profile, dirs_exist_ok=True)
         descriptor_path = profile / 'boot_adb/profile.json'
         descriptor = json.loads(descriptor_path.read_text())
         descriptor['donor_sha256'] = hashlib.sha256(
             (self.root / 'system/system/apex' / descriptor['donor_file']).read_bytes()).hexdigest()
         port.write(descriptor_path, json.dumps(descriptor))
         return repository / 'fixes'
+
+    def test_all_ace3v_sdk_flows_remove_optional_bind_wait(self):
+        for sdk in (34, 35, 36, 37):
+            with self.subTest(sdk=sdk):
+                self.root = Path(self.tmp.name) / ('sdk' + str(sdk))
+                fixture(self.root, sdk)
+                port.assemble(self.root, sdk in (34, 35, 36))
+                stock = Path(self.tmp.name) / ('stock' + str(sdk))
+                fixture(stock, sdk)
+                assets = self.a15_assets(sdk) if sdk in (34, 35) else REPO / 'fixes'
+                fstab = self.root / 'vendor/etc/fstab.qcom'
+                port.write(fstab, '/mnt/vendor/my_product /my_product none ro,bind wait,nofail\n'
+                           '/dev/block/userdata /data f2fs rw wait,check,formattable\n')
+                port.write(self.root / 'vendor/etc/selinux/vendor_sepolicy.cil', '(type fixture)\n')
+                module = self.root / 'system/system/apex/com.google.android.permission_compressed.apex'
+                original = module.read_bytes()
+                port.set_props(self.root / 'system/system/build.prop', {
+                    'ro.system.product.cpu.abilist': 'arm64-v8a,armeabi-v7a,armeabi',
+                    'ro.system.product.cpu.abilist32': 'armeabi-v7a,armeabi',
+                    'ro.system.product.cpu.abilist64': 'arm64-v8a'})
+                with patch.object(port, 'compile_policy', return_value={'permissive_types': 0}):
+                    report = port.finish(self.root, 'OnePlusAce3V', stock, assets)
+                self.assertEqual(report['optional_oem_bind_wait_removed'], ['/mnt/vendor/my_product'])
+                self.assertIn('none ro,bind nofail\n', fstab.read_text())
+                self.assertIn('f2fs rw wait,check,formattable', fstab.read_text())
+                if sdk == 34:
+                    self.assertTrue(report['ace3v_android14'])
+                    self.assertTrue(report['noauth_boot_adb'])
+                    self.assertNotIn('permission_roles', report)
+                    self.assertEqual(module.read_bytes(), original)
+                    self.assertFalse((self.root / 'system_ext/overlay/Ace3vPermissionRoles').exists())
+                    props = port.properties(self.root / 'system/system/build.prop')
+                    self.assertEqual(props['ro.system.product.cpu.abilist'], 'arm64-v8a')
+                    self.assertEqual(props['ro.system.product.cpu.abilist32'], '')
+                    self.assertEqual(props['ro.system.product.cpu.abilist64'], 'arm64-v8a')
+                    self.assertIn('arm64_abi', report)
+                    grant = self.root / report['securitycenter_permissions']['path']
+                    self.assertTrue(report['securitycenter_permissions']['installed'])
+                    self.assertIn('android.permission.READ_WALLPAPER_INTERNAL', grant.read_text())
+                    self.assertEqual(port.Metadata(self.root, 'product').fs[
+                        'product/etc/permissions/privapp-permissions-ace3v-a14.xml'], ['0', '0', '0644'])
+                else:
+                    self.assertEqual(port.properties(self.root / 'system/system/build.prop')[
+                        'ro.system.product.cpu.abilist32'], 'armeabi-v7a,armeabi')
+                    self.assertNotIn('arm64_abi', report)
+                    self.assertNotIn('securitycenter_permissions', report)
+
+    def test_a14_securitycenter_allowlist_keeps_apk_and_enforcement(self):
+        port.set_props(self.root / 'system/system/build.prop', {
+            'ro.build.version.sdk': '34', 'ro.control_privapp_permissions': 'enforce'})
+        profile = REPO / 'devices/OnePlusAce3V/android-34'
+        apk = self.root / 'product/priv-app/MIUISecurityCenter/MIUISecurityCenter.apk'
+        original = apk.read_bytes()
+        for _ in range(2):
+            result = port.install_a14_securitycenter_permissions(self.root, profile)
+            self.assertTrue(result['installed'])
+        self.assertEqual(apk.read_bytes(), original)
+        self.assertEqual(port.properties(self.root / 'system/system/build.prop')[
+            'ro.control_privapp_permissions'], 'enforce')
+        self.assertEqual(port.Metadata(self.root, 'product').ctx[result['path']],
+                         ['u:object_r:system_file:s0'])
+        shutil.rmtree(apk.parent)
+        self.assertFalse(port.install_a14_securitycenter_permissions(self.root, profile)['installed'])
+        port.set_props(self.root / 'system/system/build.prop', {'ro.build.version.sdk': '35'})
+        with self.assertRaisesRegex(ValueError, 'restricted to SDK34'):
+            port.install_a14_securitycenter_permissions(self.root, profile)
+
+    def test_a14_abi_alignment_is_idempotent_and_rejects_other_hardware(self):
+        path = self.root / 'system/system/build.prop'
+        port.align_a14_arm64_abi(self.root)
+        first = path.read_bytes()
+        port.align_a14_arm64_abi(self.root)
+        self.assertEqual(path.read_bytes(), first)
+        port.set_props(self.root / 'vendor/build.prop', {
+            'ro.vendor.product.cpu.abilist32': 'armeabi-v7a'})
+        with self.assertRaisesRegex(ValueError, 'arm64-only vendor'):
+            port.align_a14_arm64_abi(self.root)
+        self.assertEqual(path.read_bytes(), first)
+        port.set_props(self.root / 'odm/build.prop', {
+            'ro.vendor.product.cpu.abilist': 'arm64-v8a',
+            'ro.vendor.product.cpu.abilist32': '',
+            'ro.zygote': 'zygote64'})
+        port.align_a14_arm64_abi(self.root)
+        self.assertEqual(path.read_bytes(), first)
 
     def test_a15_setup_removal_cleans_metadata_and_preserves_provision(self):
         paths = ('system/system/app/SetupWizard', 'system_ext/priv-app/SetupWizard',
@@ -98,8 +188,8 @@ class PortFlowTests(unittest.TestCase):
             meta.save()
         provision = self.root / 'system_ext/priv-app/Provision/Provision.apk'
         original = provision.read_bytes()
-        self.assertEqual(set(port.remove_a15_setupwizard(self.root)), set(paths))
-        self.assertEqual(port.remove_a15_setupwizard(self.root), [])
+        self.assertEqual(set(port.remove_setupwizard(self.root)), set(paths))
+        self.assertEqual(port.remove_setupwizard(self.root), [])
         self.assertEqual(provision.read_bytes(), original)
         for relative in paths:
             self.assertFalse((self.root / relative).exists())
@@ -115,11 +205,11 @@ class PortFlowTests(unittest.TestCase):
         original = apex.read_bytes()
         apex.write_bytes(b'unknown donor')
         with self.assertRaisesRegex(ValueError, 'No verified'):
-            port.install_a15_noauth_adb(self.root, assets)
+            port.install_noauth_boot_adb(self.root, assets)
         apex.write_bytes(original)
         (profile / 'ace3v-adbd').write_bytes(b'tampered')
         with self.assertRaisesRegex(ValueError, 'profile hash'):
-            port.install_a15_noauth_adb(self.root, assets)
+            port.install_noauth_boot_adb(self.root, assets)
         self.assertEqual((self.root / 'system/system/build.prop').read_bytes(), before)
         self.assertFalse((self.root / 'system/system/bin/ace3v-adbd').exists())
 
@@ -382,7 +472,7 @@ class PortFlowTests(unittest.TestCase):
                    '    user root\n    seclabel u:r:shell:s0\n\n'
                    'on property:odm.security.rootpub.trigger=1\n    start pubcert_download\n\n'
                    'service fdpp /system_ext/bin/fdpp daemon\n    user root\n')
-        port.harden_a15_init(self.root)
+        port.harden_enforcing_init(self.root)
         self.assertNotIn('pubcert_download', init.read_text())
         self.assertIn('service fdpp', init.read_text())
         self.assertIn('user root', init.read_text())

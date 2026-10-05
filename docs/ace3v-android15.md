@@ -160,7 +160,8 @@ Original BoringSSL binaries and reboot guards remain.
 
 - Optional OEM `my_*` bind mounts retain `nofail` and lose only the `wait`
   flag that caused ten approximately 20-second waits in the observed DSU
-  boot. Required first-stage and block-device waits are unchanged.
+  boot. This shared fix now runs for all Ace 3V SDK flows (34–37).
+  Required first-stage and block-device waits are unchanged.
 
 Regional `ro.product.mod_device=mondrian_tw_global` is retained. FeatureParser
 uses the existing `mondrian.xml`, with 1240-pixel width and 120/90/60 Hz.
