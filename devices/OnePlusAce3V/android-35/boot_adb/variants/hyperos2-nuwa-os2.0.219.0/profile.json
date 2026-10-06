@@ -1,0 +1,27 @@
+{
+  "donor_file": "com.android.adbd.capex",
+  "donor_sha256": "d7562ff524e9250d99d5e42c4f4873905ac73568eebb6282b1a82cfe2dbb8076",
+  "original_sha256": "225655af2ce478cd496c04a9d6e3fd1601764eb6acb39607fbda3d4cf4ea8bb2",
+  "patched_sha256": "c6e9904d5a29fc6a0d85cf266a092fa58738d2d1aa940a81eea4b38d08f1b8d6",
+  "patch_offset": "0xa2224",
+  "original_instruction": "80020034",
+  "replacement_instruction": "1f2003d5",
+  "shell_uid": 2000,
+  "selinux": "Enforcing",
+  "authentication": false,
+  "signed_apex_untouched": true,
+  "runtime_boot_verified": true,
+  "runtime_shell_uid_verified": true,
+  "donor_build": "nuwa OS2.0.219.0.VMBCNXM Android 15",
+  "apex_libraries_sha256": {
+    "libadb_pairing_connection.so": "0d3facf0e9be87e869287be65478a1ba96a133c8ba94703c55031b2240d15c58",
+    "libadbconnection_client.so": "f62b8552e2dee0d3e85ac135220afe690905720b4f920cf30e8813e83723e02c",
+    "libbase.so": "fac676e8a7b8fad7d2eb88bc54e8b77708f8ce31a5ea1d0130e7ce2a9ae0adea",
+    "libcrypto.so": "9a9d4b0d4a85b960dfe7b135df85786d8f6993594b87d7321eef84dfa2f996d8",
+    "libc++.so": "794eb8fafd7be35da3725e9ec0b15189c6f4f2544f5b78afd8a647dde5b69195",
+    "libcrypto_utils.so": "c5dced04ffe99e925bce12467e206ecdd3d1b72ff01970abd5f6d08c3bd3ba5f",
+    "libadb_pairing_auth.so": "a182e09163ba7ff7d670d895302429810fd6f629b168af19d4b77997ce2ea4f1",
+    "libadb_pairing_server.so": "8c76c38e0335a69594b4d9474ee0ed64ad656811cb1e5d07acf1d856fbfd4bf1",
+    "libcutils.so": "55eb9821f0b5abc93eb2ab598bd94591979635995af486ddafd44ec9e2dda1c3"
+  }
+}

@@ -124,6 +124,60 @@ def install_a14_stock_gms(root, stock, profile):
             'precompiled_app_cache_removed': True}
 
 
+def install_a15_gms_factory_modules(root, profile):
+    """Stage this verified SDK35 container's own signed modules for factory loading."""
+    if sdk(root) != 35:
+        raise ValueError('Factory GMS SDK35 layout is restricted to SDK35')
+    descriptor = json.loads((profile / 'google_modules.json').read_text('utf-8'))
+    if descriptor['sdk'] != 35:
+        raise ValueError('Factory GMS profile SDK mismatch')
+    apk = root / 'product/priv-app/GmsCore/GmsCore.apk'
+    if not apk.is_file():
+        return {'installed': False, 'reason': 'Donor has no product GmsCore'}
+    digest = hashlib.sha256(apk.read_bytes()).hexdigest()
+    if digest != descriptor['container_sha256']:
+        return {'installed': False, 'reason': 'Unmatched GMS container; factory modules unchanged',
+                'container_sha256': digest}
+    verified, names = [], set()
+    with zipfile.ZipFile(apk) as archive:
+        entries = [info.filename for info in archive.infolist()
+                   if info.filename.startswith('assets/chimera-modules/') and info.filename.endswith('.apk')]
+        if sorted(entries) != sorted(entry['apk_entry'] for entry in descriptor['modules']):
+            raise ValueError('SDK35 GMS embedded module list mismatch')
+        for entry in descriptor['modules']:
+            name = entry['apk_entry'].removeprefix('assets/chimera-modules/')
+            if Path(name).name != name or name in names:
+                raise ValueError('Invalid SDK35 GMS module filename')
+            names.add(name)
+            payload = archive.read(entry['apk_entry'])
+            if hashlib.sha256(payload).hexdigest() != entry['sha256']:
+                raise ValueError('SDK35 GMS embedded module hash mismatch: ' + name)
+            verified.append((name, payload))
+    if not verified:
+        raise ValueError('SDK35 GMS factory module profile is empty')
+    relative = 'product/priv-app/GmsCore/m/container'
+    directory = root / relative
+    if directory.is_symlink() or not directory.resolve().is_relative_to(root.resolve()):
+        raise ValueError('SDK35 GMS factory module path escapes port tree')
+    shutil.rmtree(directory, ignore_errors=True)
+    meta = Metadata(root, 'product')
+    for records in (meta.fs, meta.ctx):
+        for key in list(records):
+            if key == relative or key.startswith(relative + '/'):
+                del records[key]
+    directory.mkdir(parents=True, exist_ok=True)
+    for parent in ('priv-app/GmsCore/m', 'priv-app/GmsCore/m/container'):
+        meta.pin(parent, mode='0755')
+    for name, payload in verified:
+        (directory / name).write_bytes(payload)
+        meta.pin('priv-app/GmsCore/m/container/' + name)
+    meta.save()
+    return {'installed': True, 'container_sha256': digest, 'gms_version': descriptor['gms_version'],
+            'factory_directory': relative, 'modules': descriptor['modules'],
+            'signed_container_unchanged': True, 'independent_modules_unchanged': True,
+            'fresh_dsu_verified': False}
+
+
 def sdk(root):
     for rel in ('system/system/build.prop', 'system_ext/etc/build.prop',
                 'system_ext/build.prop', 'product/etc/build.prop'):
@@ -339,6 +393,49 @@ def install_a14_securitycenter_permissions(root, profile):
             'permission': permission, 'path': relative}
 
 
+def install_a15_privapp_permissions(root, profile):
+    """Allow the two observed SDK35 boot blockers on their APK partition."""
+    if sdk(root) != 35:
+        raise ValueError('Privapp SDK35 allowlist is restricted to SDK35')
+    relative = 'product/etc/permissions/privapp-permissions-ace3v-a15.xml'
+    source = profile / 'files' / relative
+    expected = {
+        'com.miui.personalassistant': ('MIUIPersonalAssistant', 'android.permission.START_ACTIVITIES_FROM_BACKGROUND'),
+        'com.miui.securitycenter': ('MIUISecurityCenter', 'android.permission.READ_WALLPAPER_INTERNAL'),
+    }
+    template = ET.parse(source).getroot()
+    if template.tag != 'permissions' or template.attrib or len(template) != len(expected):
+        raise ValueError('Unexpected SDK35 privileged permission profile')
+    seen, grants = set(), []
+    output = ET.Element('permissions')
+    for node in template:
+        package = node.get('package')
+        if (node.tag != 'privapp-permissions' or package not in expected or package in seen
+                or node.attrib != {'package': package} or len(node) != 1
+                or node[0].tag != 'permission'
+                or node[0].attrib != {'name': expected[package][1]} or len(node[0])):
+            raise ValueError('Unexpected SDK35 privileged permission profile')
+        seen.add(package)
+        folder, permission = expected[package]
+        if (root / 'product/priv-app' / folder).is_dir():
+            output.append(node)
+            grants.append({'package': package, 'permission': permission})
+    target = root / relative
+    meta = Metadata(root, 'product')
+    if not grants:
+        target.unlink(missing_ok=True)
+        meta.fs.pop(relative, None)
+        meta.ctx.pop(relative, None)
+        meta.save()
+        return {'installed': False, 'reason': 'Matching product privileged apps are absent'}
+    ET.indent(output, space='    ')
+    write(target, '<?xml version="1.0" encoding="utf-8"?>\n' + ET.tostring(output, encoding='unicode') + '\n')
+    meta.pin(relative.removeprefix('product/'))
+    meta.save()
+    return {'installed': True, 'path': relative, 'grants': grants,
+            'sha256': hashlib.sha256(target.read_bytes()).hexdigest()}
+
+
 def install_a15_permission_role_overlay(root, profile):
     """Guard the unsupported role permission and preserve role dialog resources."""
     if sdk(root) != 35:
@@ -495,15 +592,34 @@ def secure_adb(root, assets, ace16=False):
         meta.save()
 
 
-def install_noauth_boot_adb(root, assets):
-    """Use the tested auth-only patch; leave the signed APEX and UID drop intact."""
-    version = sdk(root)
-    profile = assets.parent / f'devices/OnePlusAce3V/android-{version}/boot_adb'
-    descriptor = json.loads((profile / 'profile.json').read_text('utf-8'))
-    apex = root / 'system/system/apex' / descriptor['donor_file']
-    if not apex.is_file() or hashlib.sha256(apex.read_bytes()).hexdigest() != descriptor['donor_sha256']:
+def select_noauth_adb_profile(root, profiles):
+    """Match the complete donor APEX hash to exactly one verified profile."""
+    matches, observed = [], {}
+    candidates = [profiles / 'profile.json', *sorted((profiles / 'variants').glob('*/profile.json'))]
+    for candidate in candidates:
+        descriptor = json.loads(candidate.read_text('utf-8'))
+        name = descriptor['donor_file']
+        if Path(name).name != name:
+            raise ValueError('Invalid donor APEX filename in no-auth profile')
+        apex = root / 'system/system/apex' / name
+        if name not in observed:
+            observed[name] = hashlib.sha256(apex.read_bytes()).hexdigest() if apex.is_file() else None
+        if observed[name] == descriptor['donor_sha256']:
+            matches.append((candidate.parent, descriptor))
+    if not matches:
+        found = ', '.join(name + '=' + digest for name, digest in observed.items() if digest) or 'none'
         raise ValueError('No verified no-auth adbd profile for this donor APEX; '
-                         'refusing to install an incompatible daemon')
+                         'refusing to install an incompatible daemon. Observed: ' + found)
+    if len(matches) != 1:
+        raise ValueError('Ambiguous verified no-auth adbd profiles for this donor')
+    return matches[0]
+
+
+def install_noauth_boot_adb(root, assets):
+    """Use a donor-matched auth-only patch; keep the signed APEX and UID drop."""
+    version = sdk(root)
+    profiles = assets.parent / f'devices/OnePlusAce3V/android-{version}/boot_adb'
+    profile, descriptor = select_noauth_adb_profile(root, profiles)
     daemon = profile / 'ace3v-adbd'
     if hashlib.sha256(daemon.read_bytes()).hexdigest() != descriptor['patched_sha256']:
         raise ValueError('No-auth adbd profile hash mismatch')
@@ -540,7 +656,10 @@ def install_noauth_boot_adb(root, assets):
               + rule + '\n')
     return {'authentication': False, 'shell_uid': 2000, 'signed_apex_untouched': True,
             'daemon_sha256': descriptor['patched_sha256'],
-            'donor_apex_sha256': descriptor['donor_sha256']}
+            'donor_apex_sha256': descriptor['donor_sha256'],
+            'profile': (profile / 'profile.json').relative_to(profiles).as_posix(),
+            'donor_apex_file': descriptor['donor_file'],
+            'runtime_boot_verified': descriptor.get('runtime_boot_verified', False)}
 
 
 def remove_setupwizard(root):
@@ -728,6 +847,10 @@ def finish(root, device, stock, assets, adb=False, compiler='secilc'):
         if ace_enforcing:
             report['setupwizard_removed'] = remove_setupwizard(root)
         if ace15:
+            report['google_factory_modules'] = install_a15_gms_factory_modules(
+                root, assets.parent / 'devices/OnePlusAce3V/android-35')
+            report['privapp_permissions'] = install_a15_privapp_permissions(
+                root, assets.parent / 'devices/OnePlusAce3V/android-35')
             report['permission_roles'] = install_a15_permission_role_overlay(
                 root, assets.parent / 'devices/OnePlusAce3V/android-35/permission_roles')
         report['apex'] = replace_apex(root, stock)

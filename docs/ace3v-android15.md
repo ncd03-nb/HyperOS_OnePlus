@@ -1,12 +1,48 @@
-# OnePlus Ace 3V: HyperOS 3 / Android 15
+# OnePlus Ace 3V: HyperOS 2 and 3 / Android 15
 
 Current SDK35 builds remove the full SetupWizard and start ADB without host
 authentication during boot. Shell UID2000 and SELinux Enforcing are retained.
 The verified daemon and donor hashes are in `android-35/boot_adb/`.
-The local ROM with this flow completed boot; it still has PermissionController
+The build selects an exact donor APEX hash from the default profile or a
+`boot_adb/variants` profile. HyperOS 2 nuwa `OS2.0.219.0.VMBCNXM` has its own
+`com.android.adbd.capex` daemon; its no-auth branch is inspected separately and
+does not reuse the HyperOS 3 daemon or its patch offset. Unrecognized APEX
+hashes still fail rather than mixing daemon/library versions. The HyperOS 2
+variant has working boot-animation ADB: R1 device checks confirm shell UID2000,
+SELinux Enforcing and security properties `ro.secure=1`, `ro.adb.secure=0`,
+`ro.debuggable=0`. R2 completes boot: `sys.boot_completed=1` and bootanimation
+stopped, with shell UID2000 and Enforcing confirmed again.
+The earlier HyperOS 3 ROM with this flow completed boot; it still has PermissionController
 compatibility crashes involving `RANGING` and `checkOpRawNoThrow`. The role
 resource overlay does not resolve those code/API mismatches. Do not disable
 PermissionController: that prevents PackageManagerService from starting.
+
+HyperOS 2 nuwa R1 repeatedly aborts `system_server` during
+`PackageManagerService.systemReady` because its product apps lack two privileged
+permission allowlist entries. The captured log contains 13 system-process
+fatals: `com.miui.personalassistant` needs
+`android.permission.START_ACTIVITIES_FROM_BACKGROUND`, and
+`com.miui.securitycenter` needs `android.permission.READ_WALLPAPER_INTERNAL`.
+The SDK35 finish stage installs `privapp-permissions-ace3v-a15.xml` under
+`product/etc/permissions`, adding only the observed grant for each matching
+product app present in the tree. APKs, PermissionController and privilege
+enforcement remain unchanged. Its metadata is root:root 0644 with
+`system_file`; R2 needs only a new product image. Its boot is now confirmed by
+the user and live ADB properties.
+
+R2's donor GMS 25.10.36 rejects its factory module set with `No usable modules`;
+the scan finds only the independent AndroidPlatformServices sidecar. Installing
+the byte-identical GmsCore APK as a data update loads its module set, launches
+AccountIntroActivity/PreAddAccountActivity and restores the login screen as
+confirmed by the user. The APK contains eight signed module APKs, but the
+factory tree lacks `GmsCore/m/container`. Its actual SDK35 loader (`sky`/`skw`)
+supports reading loose modules from that directory beside a system/product
+container APK. The SDK35 finish stage now stages the eight original embedded
+module bytes for the hash-verified container in `google_modules.json`.
+No GMS, GSF or PermissionController APK is replaced, and the independent module
+is retained. Unknown GMS containers are left untouched. R3 product readback
+checks the module bytes and metadata; fresh DSU factory loading still requires
+a boot without the GMS data update used in the live test.
 
 The following R4–R7 observations describe earlier iterations.
 
@@ -41,6 +77,14 @@ hardware operation is not fully verified.
   --apex-stock /path/to/stock_a15 \
   --name HyperOS3-Ace3V-Android15-Enforcing
 ```
+
+For HyperOS 2 nuwa `OS2.0.219.0.VMBCNXM`, use its extracted tree as
+`--hyperos /path/to/hyper2` with the same SDK35 stock APEX input. The finish
+stage selects `boot_adb/variants/hyperos2-nuwa-os2.0.219.0/profile.json` by
+the complete `com.android.adbd.capex` hash. This donor keeps its original
+`com.android.permission.capex`; the older HyperOS 3 role overlay is not
+installed on an unmatched Permission APEX. Neither the Android 14 Google
+bundle nor its framework patch is applied to SDK35.
 
 `--stock` retains the requested hardware vendor/odm. `--apex-stock` must contain
 SDK35 system_ext and its original fs_config/file_contexts. Only system_ext APEX

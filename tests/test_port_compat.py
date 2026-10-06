@@ -9,6 +9,7 @@ import tempfile
 import unittest
 import hashlib
 import json
+import xml.etree.ElementTree as ET
 from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
@@ -157,6 +158,55 @@ class PortFlowTests(unittest.TestCase):
         port.set_props(self.root / 'system/system/build.prop', {'ro.build.version.sdk': '35'})
         with self.assertRaisesRegex(ValueError, 'restricted to SDK34'):
             port.install_a14_securitycenter_permissions(self.root, profile)
+
+    def test_a15_privapp_allowlist_repairs_observed_boot_crash_without_weakening_policy(self):
+        port.set_props(self.root / 'system/system/build.prop', {
+            'ro.build.version.sdk': '35', 'ro.control_privapp_permissions': 'enforce'})
+        port.write(self.root / 'product/priv-app/MIUIPersonalAssistant/MIUIPersonalAssistant.apk', 'donor assistant')
+        profile = REPO / 'devices/OnePlusAce3V/android-35'
+        apks = list((self.root / 'product/priv-app').rglob('*.apk'))
+        before = {apk: apk.read_bytes() for apk in apks}
+        for _ in range(2):
+            result = port.install_a15_privapp_permissions(self.root, profile)
+        expected = {'com.miui.personalassistant': 'android.permission.START_ACTIVITIES_FROM_BACKGROUND',
+                    'com.miui.securitycenter': 'android.permission.READ_WALLPAPER_INTERNAL'}
+        xml = ET.parse(self.root / result['path']).getroot()
+        self.assertEqual({node.get('package'): node[0].get('name') for node in xml}, expected)
+        self.assertTrue(all(len(node) == 1 for node in xml))
+        self.assertEqual({apk: apk.read_bytes() for apk in apks}, before)
+        self.assertEqual(port.properties(self.root / 'system/system/build.prop')[
+            'ro.control_privapp_permissions'], 'enforce')
+        meta = port.Metadata(self.root, 'product')
+        self.assertEqual(meta.fs[result['path']], ['0', '0', '0644'])
+        self.assertEqual(meta.ctx[result['path']], ['u:object_r:system_file:s0'])
+
+    def test_a15_privapp_allowlist_only_grants_present_product_apps_and_cleans_stale_output(self):
+        port.set_props(self.root / 'system/system/build.prop', {'ro.build.version.sdk': '35'})
+        profile = REPO / 'devices/OnePlusAce3V/android-35'
+        result = port.install_a15_privapp_permissions(self.root, profile)
+        self.assertEqual(result['grants'], [{'package': 'com.miui.securitycenter',
+                          'permission': 'android.permission.READ_WALLPAPER_INTERNAL'}])
+        shutil.rmtree(self.root / 'product/priv-app/MIUISecurityCenter')
+        port.write(self.root / 'system_ext/priv-app/MIUISecurityCenter/MIUISecurityCenter.apk', 'other partition')
+        self.assertFalse(port.install_a15_privapp_permissions(self.root, profile)['installed'])
+        self.assertFalse((self.root / result['path']).exists())
+        self.assertNotIn(result['path'], port.Metadata(self.root, 'product').fs)
+        self.assertNotIn(result['path'], port.Metadata(self.root, 'product').ctx)
+        port.set_props(self.root / 'system/system/build.prop', {'ro.build.version.sdk': '34'})
+        with self.assertRaisesRegex(ValueError, 'restricted to SDK35'):
+            port.install_a15_privapp_permissions(self.root, profile)
+
+    def test_a15_privapp_allowlist_rejects_unexpected_grants_before_changing_tree(self):
+        port.set_props(self.root / 'system/system/build.prop', {'ro.build.version.sdk': '35'})
+        profile = Path(self.tmp.name) / 'bad-profile'
+        relative = 'product/etc/permissions/privapp-permissions-ace3v-a15.xml'
+        text = (REPO / 'devices/OnePlusAce3V/android-35/files' / relative).read_text()
+        port.write(profile / 'files' / relative, text.replace('READ_WALLPAPER_INTERNAL', 'MASTER_CLEAR'))
+        metadata = (self.root / 'config/product_fs_config').read_bytes()
+        with self.assertRaisesRegex(ValueError, 'Unexpected SDK35'):
+            port.install_a15_privapp_permissions(self.root, profile)
+        self.assertFalse((self.root / relative).exists())
+        self.assertEqual((self.root / 'config/product_fs_config').read_bytes(), metadata)
 
     def test_a14_abi_alignment_is_idempotent_and_rejects_other_hardware(self):
         path = self.root / 'system/system/build.prop'

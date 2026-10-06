@@ -1,0 +1,48 @@
+{
+  "sdk": 35,
+  "gms_version": "25.10.36 (260400-739992411)",
+  "donor": "nuwa OS2.0.219.0.VMBCNXM",
+  "container_sha256": "0a16c4a0f49b1b5b084efd3e58d2d3147fa7f8d1f461f93362867f26f3418cc8",
+  "modules": [
+    {
+      "apk_entry": "assets/chimera-modules/AdsDynamite.apk",
+      "sha256": "25df3213f58dbdfe1ab4e70565a45e219eda88ebe4119c7bcbdd8e53738a11be",
+      "bytes": 4319044
+    },
+    {
+      "apk_entry": "assets/chimera-modules/CronetDynamite.apk",
+      "sha256": "f3bc40ae6e3358d200966cf7d7a6b2ca24c13c6d82ebda52d0f4365c3fa5b97a",
+      "bytes": 10745008
+    },
+    {
+      "apk_entry": "assets/chimera-modules/DynamiteLoader.apk",
+      "sha256": "fa3a1f7eb7d5ee3fe2cace490d69734af3a69da74131f0878439cb7e04e66a6b",
+      "bytes": 201732
+    },
+    {
+      "apk_entry": "assets/chimera-modules/DynamiteModulesA.apk",
+      "sha256": "d58265d44798f2f8c2891f527bf79b0e16834e2e032887e838d0eac5c13fc0cf",
+      "bytes": 1093303
+    },
+    {
+      "apk_entry": "assets/chimera-modules/DynamiteModulesC.apk",
+      "sha256": "626a1ea30c351421ac991d07e12f50a1be61d875e63f457bb2907a8c23b39219",
+      "bytes": 2278735
+    },
+    {
+      "apk_entry": "assets/chimera-modules/GoogleCertificates.apk",
+      "sha256": "68d61ad924967e1d27fc745d1ec52192e2accda5ec97afd229ffd514eb749b05",
+      "bytes": 828420
+    },
+    {
+      "apk_entry": "assets/chimera-modules/MapsDynamite.apk",
+      "sha256": "ada010211608858bc995c0943736e7b57dad958824105c5801d5159bc3bc10d6",
+      "bytes": 2592928
+    },
+    {
+      "apk_entry": "assets/chimera-modules/MeasurementDynamite.apk",
+      "sha256": "21ebf7c5b530c5db3ae0e2e260be3cb863f0789f9fcb864d48c38ec82d56e4c2",
+      "bytes": 914436
+    }
+  ]
+}

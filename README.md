@@ -239,8 +239,15 @@ Ace 3V SDK35 removes SetupWizard and enables ADB without host authentication
 at boot, including bootanimation. It retains `ro.secure=1`, `ro.debuggable=0`,
 shell UID2000 and SELinux Enforcing. The signed adbd APEX is unchanged; the
 tested daemon is bound into its namespace after APEX activation. The no-auth
-profile accepts only the recorded donor APEX hash and fails on unsupported
-versions. See [Android 15 boot ADB](devices/OnePlusAce3V/android-35/boot_adb/README.md).
+profile selects the default or a donor variant by the recorded full APEX hash
+and fails on unsupported versions. HyperOS 2 nuwa `OS2.0.219.0.VMBCNXM` has a
+separate SDK35 `com.android.adbd.capex` profile. See
+[Android 15 boot ADB](devices/OnePlusAce3V/android-35/boot_adb/README.md).
+SDK35 also supplies the two observed boot-blocking product permission grants.
+For the verified nuwa GMS 25.10.36 container, its eight original embedded
+modules are staged under `GmsCore/m/container` to repair factory module
+discovery. Unknown GMS containers are unchanged. See
+[Android 15 port and Google login](docs/ace3v-android15.md).
 
 Ace 3V SDK34 uses the same enforcing assembly with its own Android 14 ADB
 profile and matching stock system_ext APEX. It skips the Android 15 role
