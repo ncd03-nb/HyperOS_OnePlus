@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import xml.etree.ElementTree as ET
 import zipfile
+from adbd_patch import derive_from_donor, patch_auth
 
 PARTS = ('system', 'system_ext', 'product', 'vendor', 'odm')
 
@@ -498,8 +499,8 @@ def install_a15_permission_role_overlay(root, profile):
 
 
 def force_adb(root, assets, ace16=False):
-    # SDK34/35 use verified no-auth daemons while preserving shell privileges.
-    if sdk(root) in (34, 35):
+    # Supported Ace 3V SDKs share no-auth ADB with normal shell privileges.
+    if sdk(root) in (34, 35, 36):
         return install_noauth_boot_adb(root, assets)
     debug = {'ro.debuggable': '1', 'ro.secure': '0', 'ro.adb.secure': '0'}
     prop_default = root / 'system/system/etc/prop.default'
@@ -579,7 +580,7 @@ def secure_adb(root, assets, ace16=False):
     set_props(root / 'vendor/build.prop', {'persist.vendor.usb.config': 'adb'})
     forced = root / 'system/system/etc/init/hyperos_force_adb.rc'
     forced.parent.mkdir(parents=True, exist_ok=True)
-    early_adb = sdk(root) in (34, 35)
+    early_adb = sdk(root) in (34, 35, 36)
     shutil.copy2(assets / ('hyperos_early_adb_a15.rc' if early_adb else 'hyperos_force_adb.rc'), forced)
     if early_adb:
         remove_adb_property_resets(root)
@@ -597,6 +598,8 @@ def select_noauth_adb_profile(root, profiles):
     matches, observed = [], {}
     candidates = [profiles / 'profile.json', *sorted((profiles / 'variants').glob('*/profile.json'))]
     for candidate in candidates:
+        if not candidate.is_file():
+            continue
         descriptor = json.loads(candidate.read_text('utf-8'))
         name = descriptor['donor_file']
         if Path(name).name != name:
@@ -618,17 +621,31 @@ def select_noauth_adb_profile(root, profiles):
 def install_noauth_boot_adb(root, assets):
     """Use a donor-matched auth-only patch; keep the signed APEX and UID drop."""
     version = sdk(root)
+    cil = root / 'vendor/etc/selinux/vendor_sepolicy.cil'
+    policy = cil.read_text('utf-8')
     profiles = assets.parent / f'devices/OnePlusAce3V/android-{version}/boot_adb'
-    profile, descriptor = select_noauth_adb_profile(root, profiles)
-    daemon = profile / 'ace3v-adbd'
-    if hashlib.sha256(daemon.read_bytes()).hexdigest() != descriptor['patched_sha256']:
-        raise ValueError('No-auth adbd profile hash mismatch')
+    try:
+        profile, descriptor = select_noauth_adb_profile(root, profiles)
+    except ValueError as error:
+        if not str(error).startswith('No verified'):
+            raise
+        daemon_data, descriptor = derive_from_donor(root)
+    else:
+        daemon = profile / 'ace3v-adbd'
+        raw = daemon.read_bytes()
+        if hashlib.sha256(raw).hexdigest() != descriptor['patched_sha256']:
+            raise ValueError('No-auth adbd profile hash mismatch')
+        # Older cached assets only bypassed the debuggable gate: vendor
+        # ro.adb.secure=1 could still turn authentication back on.
+        daemon_data, patch_report = patch_auth(raw)
+        descriptor = {**descriptor, **patch_report,
+                      'profile': (profile / 'profile.json').relative_to(profiles).as_posix()}
     secure_adb(root, assets, ace16=True)
     for rel in ('system/system/etc/prop.default', 'system/system/build.prop'):
         set_props(root / rel, {'ro.adb.secure': '0', 'ro.secure': '1', 'ro.debuggable': '0'})
     dest = root / 'system/system/bin/ace3v-adbd'
     dest.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(daemon, dest)
+    dest.write_bytes(daemon_data)
     meta = Metadata(root, 'system')
     meta.pin('system/bin/ace3v-adbd', 'adbd_exec', '0755')
     meta.save()
@@ -640,16 +657,21 @@ def install_noauth_boot_adb(root, assets):
     text = rc.read_text('utf-8').replace(
         '# Authenticated shell ADB, independent of setup and sys.boot_completed.',
         '# USB ADB without host authentication; enforcing SELinux and shell UID2000.')
+    if version not in (34, 35):
+        text = text.replace('    setenforce 1\n', '')
     needle = ('on property:apex.all.ready=true\n    setprop service.adb.root 0\n'
               '    setprop sys.usb.config adb\n    start adbd')
     if text.count(needle) != 1:
-        raise ValueError('Missing Android 15 APEX-ready ADB action')
-    write(rc, text.replace(needle,
-          'on property:apex.all.ready=true\n'
-          '    mount none /system/bin/ace3v-adbd /apex/com.android.adbd/bin/adbd bind\n'
-          '    setprop service.adb.root 0\n    setprop sys.usb.config adb\n    restart adbd'))
-    cil = root / 'vendor/etc/selinux/vendor_sepolicy.cil'
-    text = cil.read_text('utf-8')
+        raise ValueError('Missing shared APEX-ready ADB action')
+    bind = '    mount none /system/bin/ace3v-adbd /apex/com.android.adbd/bin/adbd bind\n'
+    action = bind + '    setprop service.adb.root 0\n    setprop sys.usb.config adb\n    restart adbd'
+    text = text.replace(needle, 'on property:apex.all.ready=true\n' + action)
+    text = text.replace('on ace3v-adb-usb-ready\n', 'on ace3v-adb-usb-ready\n' + bind)
+    text += ('\n# APEX readiness differs between donor versions and regions.\n'
+             'on property:apexd.status=activated\n' + action + '\n\n'
+             'on property:apexd.status=ready\n' + action + '\n')
+    write(rc, text)
+    text = policy
     rule = '(allow init adbd_exec (file (mounton)))'
     if rule not in text:
         write(cil, text.rstrip() + '\n; Bind the auth-only daemon after signed APEX activation.\n'
@@ -657,7 +679,8 @@ def install_noauth_boot_adb(root, assets):
     return {'authentication': False, 'shell_uid': 2000, 'signed_apex_untouched': True,
             'daemon_sha256': descriptor['patched_sha256'],
             'donor_apex_sha256': descriptor['donor_sha256'],
-            'profile': (profile / 'profile.json').relative_to(profiles).as_posix(),
+            'profile': descriptor['profile'],
+            'patch': {key: descriptor[key] for key in ('method', 'edits', 'uid_drop_unchanged')},
             'donor_apex_file': descriptor['donor_file'],
             'runtime_boot_verified': descriptor.get('runtime_boot_verified', False)}
 
@@ -825,16 +848,47 @@ def compile_policy(root, compiler='secilc', enforcing=False):
             'sha256': hashlib.sha256(output.read_bytes()).hexdigest()}
 
 
+def install_display_config(root, profile):
+    """Validate complete normalized coverage before replacing any panel files."""
+    import math
+    files = sorted((profile / 'displayconfig').glob('*.xml'))
+    if not files:
+        raise ValueError('Missing device display configuration: ' + str(profile))
+    report = []
+    for file in files:
+        points = ET.parse(file).findall('.//screenBrightnessMap/point')
+        values = [(float(p.findtext('value')), float(p.findtext('nits'))) for p in points]
+        if (len(values) < 2 or values[0][0] != 0 or values[-1][0] != 1
+                or any(not math.isfinite(x) or not math.isfinite(y) or y < 0 for x, y in values)
+                or any(a[0] >= b[0] or a[1] >= b[1] for a, b in zip(values, values[1:]))):
+            raise ValueError('Invalid brightness map: must cover [0, 1] monotonically: ' + str(file))
+        report.append({'file': file.name, 'range': [0, 1], 'points': len(values)})
+    display = root / 'product/etc/displayconfig'
+    display.mkdir(parents=True, exist_ok=True)
+    meta = Metadata(root, 'product')
+    for old in display.glob('display_id_*.xml'):
+        old.unlink()
+        key = 'product/etc/displayconfig/' + old.name
+        meta.fs.pop(key, None)
+        meta.ctx.pop(key, None)
+    for file in files:
+        shutil.copy2(file, display / file.name)
+        meta.pin('etc/displayconfig/' + file.name)
+    meta.save()
+    return report
+
+
 def finish(root, device, stock, assets, adb=False, compiler='secilc'):
     ace14 = device == 'OnePlusAce3V' and sdk(root) == 34
     ace15 = device == 'OnePlusAce3V' and sdk(root) == 35
     ace16 = device == 'OnePlusAce3V' and sdk(root) == 36
     ace_enforcing = ace14 or ace15
     ace_full = ace_enforcing or ace16
+    ace_adb = ace_full
     report = {'device': device, 'donor_sdk': sdk(root), 'ace3v_android16': ace16,
               'ace3v_android15': ace15, 'ace3v_android14': ace14,
-              'force_adb': adb and not ace_enforcing, 'secure_boot_adb': ace16 and not adb,
-              'noauth_boot_adb': ace_enforcing,
+              'force_adb': adb, 'secure_boot_adb': False,
+              'noauth_boot_adb': ace_adb,
               'crypto_log_wrapper': False}
     # The replacement Provision APK must never use donor/ref Android 13 JNI/oat.
     provision = root / 'system_ext/priv-app/Provision'
@@ -867,15 +921,7 @@ def finish(root, device, stock, assets, adb=False, compiler='secilc'):
             for value in values:
                 ET.SubElement(array, 'item').text = value
         write(feature, ET.tostring(xml.getroot(), encoding='unicode') + '\n')
-        product_meta = Metadata(root, 'product')
-        display = root / 'product/etc/displayconfig'
-        display.mkdir(parents=True, exist_ok=True)
-        for file in display.glob('display_id_*.xml'):
-            file.unlink()
-        for file in (profile / 'displayconfig').glob('*.xml'):
-            shutil.copy2(file, display / file.name)
-            product_meta.pin('etc/displayconfig/' + file.name)
-        product_meta.save()
+        report['display_config'] = install_display_config(root, profile)
         set_props(root / 'product/etc/build.prop', {'ro.miui.region': 'cn',
                   'ro.miui.product.home': 'com.miui.home', 'ro.apex.updatable': 'true',
                   'ro.hardware.fp.fod': 'true', 'ro.hardware.fp.fod.c': 'true'})
@@ -948,6 +994,7 @@ def finish(root, device, stock, assets, adb=False, compiler='secilc'):
             odm_meta.ctx[key] = ['u:object_r:vendor_configs_file:s0' if rel.startswith('etc/')
                                  else 'u:object_r:vendor_file:s0']
         odm_meta.save()
+        report['boot_adb'] = install_noauth_boot_adb(root, assets)
         if ace16:
             report['boringssl_reboot_guards_removed'] = clean_crypto(root)
             report['boringssl_services_with_suppressed_guards'] = sum(
@@ -959,12 +1006,9 @@ def finish(root, device, stock, assets, adb=False, compiler='secilc'):
             report['boringssl_reboot_guards_removed'] = 0
             report['boringssl_tests'] = 'Original binaries and reboot guards retained'
             harden_enforcing_init(root)
-            report['boot_adb'] = install_noauth_boot_adb(root, assets)
             report['selinux'] = compile_policy(root, compiler, enforcing=True)
-    if adb and not ace_enforcing:
+    if adb and not ace_adb:
         force_adb(root, assets, ace16=ace16)
-    elif ace16:
-        secure_adb(root, assets, ace16=True)
     write(root / 'port_compat.json', json.dumps(report, indent=2) + '\n')
     return report
 

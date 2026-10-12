@@ -3,6 +3,13 @@
 <displayConfiguration>
     <!-- Global Brightness-Nit mapping -->
     <screenBrightnessMap>
+        <!-- SDK36 may request 3/8191, below the first measured 7/8191 point.
+             Cover the full normalized range so DisplayDeviceConfig can clamp
+             and interpolate without aborting system_server during boot. -->
+        <point>
+            <value>0.0</value>
+            <nits>0.0</nits>
+        </point>
         <point>
             <value>0.000854597</value>
             <nits>2.0</nits>

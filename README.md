@@ -117,7 +117,7 @@ Options:
 --keep-work           keep the working tree instead of cleaning it up
 --apex-stock <input>  separate Android-matched stock ROM/tree for Ace 3V SDK34/35/36
 --adb-key <public>    optionally authorize one adbkey.pub for authenticated ADB builds
---force-adb           development ADB; SDK34/35 already use no-auth ADB with UID2000
+--force-adb           legacy flag; Ace 3V SDK34-36 always enable no-auth ADB with UID2000
 --assemble-only       assemble and compile policy without repacking images
 ```
 
@@ -230,19 +230,22 @@ Then it applies the `RES/` overlays and the device overrides, regenerates the
 EROFS `fs_config` / `file_contexts`, repacks each partition, and writes the zip.
 Ace 3V SDK36 additionally moves the remaining `mi_ext` into the system image,
 moves the complete `pangu` directory, replaces `system_ext` APEX from matching
-stock, compiles the compatibility policy, and applies the setup flow. ADB remains
-enabled at boot but uses authentication and drops to UID 2000; SELinux stays
-globally enforcing. Insecure/root ADB is available only through `--force-adb`.
+stock, compiles the compatibility policy, and applies the setup flow.
 These changes are selected by donor SDK, not the ROM name.
 
-Ace 3V SDK35 removes SetupWizard and enables ADB without host authentication
-at boot, including bootanimation. It retains `ro.secure=1`, `ro.debuggable=0`,
-shell UID2000 and SELinux Enforcing. The signed adbd APEX is unchanged; the
-tested daemon is bound into its namespace after APEX activation. The no-auth
-profile selects the default or a donor variant by the recorded full APEX hash
-and fails on unsupported versions. HyperOS 2 nuwa `OS2.0.219.0.VMBCNXM` has a
-separate SDK35 `com.android.adbd.capex` profile. See
-[Android 15 boot ADB](devices/OnePlusAce3V/android-35/boot_adb/README.md).
+Ace 3V SDK34-36 share one no-auth boot ADB installer in `lib/port_compat.py`,
+used by both `port.sh` and Actions. It keeps `ro.secure=1`, `ro.debuggable=0`
+and shell UID2000, even with the legacy `--force-adb` flag. SDK34/35 retain
+SELinux Enforcing; the existing SDK36 policy selection is unchanged.
+The signed donor APEX and its libraries are preserved. The installer accepts
+compressed, uncompressed and flattened adbd APEX layouts. Known profiles are
+an optional cache; other regions derive their daemon from the donor itself.
+The auth state stays disabled even when vendor sets `ro.adb.secure=1`.
+Unsupported ELF layouts fail before the ADB installer changes the tree;
+a successful build is not a substitute for a device boot test.
+See [shared boot fixes](docs/boot-fixes.md).
+
+Ace 3V SDK35 removes SetupWizard and retains the minimal Provision fallback.
 SDK35 also supplies the two observed boot-blocking product permission grants.
 For the verified nuwa GMS 25.10.36 container, its eight original embedded
 modules are staged under `GmsCore/m/container` to repair factory module

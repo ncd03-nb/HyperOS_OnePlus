@@ -51,7 +51,7 @@ on:
         default: ""
         type: string
       force_adb:
-        description: "Enable development ADB (SDK34/35 already use no-auth ADB with shell UID2000)"
+        description: "Legacy ADB option (Ace 3V SDK34-36 always use no-auth ADB with shell UID2000)"
         required: false
         default: false
         type: boolean

@@ -6,7 +6,7 @@
 # --apex-stock supplies matching system_ext APEX for Ace 3V SDK34/35/36.
 # SDK34 GMS donors also use the verified Android 14 my_bigball Google bundle.
 # SDK34/35 keep SELinux enforcing and enable no-auth boot ADB (shell UID2000).
-# SDK36 starts ADB securely by default; --force-adb enables its development mode.
+# SDK34-36 share donor-derived no-auth boot ADB; --force-adb never grants root on Ace 3V.
 # --assemble-only performs assembly and policy compilation, skipping image packing.
 
 set -euo pipefail

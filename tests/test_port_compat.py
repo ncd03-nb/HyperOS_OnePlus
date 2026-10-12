@@ -44,6 +44,7 @@ def fixture(root, sdk=36):
                                  ('boringssl_self_test_apex64', '/apex/com.android.conscrypt/bin/boringssl_self_test64')))
             + 'on boot\n    exec -- /system/bin/xeutoolbox -n ro.debuggable 0\n',
         'vendor/etc/init/boringssl_self_test.rc': 'service boringssl_self_test64_vendor /vendor/bin/boringssl_self_test64\n    oneshot\n    reboot_on_failure reboot,boringssl-self-check-failed\n',
+        'vendor/etc/selinux/vendor_sepolicy.cil': '(type fixture)\n',
         'system_ext/etc/init/miuserfs.rc': 'on property:ro.debuggable=1\n    start miuserfs\n',
         'system_ext/etc/build.prop': f'ro.system_ext.build.version.sdk={sdk}\n',
         'vendor/build.prop': 'ro.product.vendor.device=OP5CFBL1\n'
@@ -59,6 +60,12 @@ def fixture(root, sdk=36):
     }
     for rel, value in files.items():
         port.write(root / rel, value)
+    if sdk in (36, 37):
+        for name in ('com.google.android.adbd_compressed.apex', 'com.android.adbd.capex'):
+            (root / 'system/system/apex' / name).unlink()
+        daemon = root / 'system/system/apex/com.android.adbd/bin/adbd'
+        daemon.parent.mkdir(parents=True)
+        shutil.copy2(REPO / 'devices/OnePlusAce3V/android-35/boot_adb/ace3v-adbd', daemon)
     for part in (*port.PARTS, 'mi_ext'):
         paths = [root / part, *(root / part).rglob('*')]
         port.write(root / 'config' / (part + '_fs_config'), '/ 0 0 0755\n' + ''.join(
@@ -86,6 +93,10 @@ class PortFlowTests(unittest.TestCase):
         shutil.copytree(REPO / 'fixes', repository / 'fixes', dirs_exist_ok=True)
         profile = repository / f'devices/OnePlusAce3V/android-{sdk}'
         shutil.copytree(REPO / f'devices/OnePlusAce3V/android-{sdk}', profile, dirs_exist_ok=True)
+        apex_dir = self.root / 'system/system/apex'
+        shutil.rmtree(apex_dir / 'com.android.adbd', ignore_errors=True)
+        port.write(apex_dir / 'com.google.android.adbd_compressed.apex', 'donor adbd fixture')
+        port.write(apex_dir / 'com.android.adbd.capex', 'donor adbd SDK34 fixture')
         descriptor_path = profile / 'boot_adb/profile.json'
         descriptor = json.loads(descriptor_path.read_text())
         descriptor['donor_sha256'] = hashlib.sha256(
@@ -254,7 +265,7 @@ class PortFlowTests(unittest.TestCase):
         apex = self.root / 'system/system/apex/com.google.android.adbd_compressed.apex'
         original = apex.read_bytes()
         apex.write_bytes(b'unknown donor')
-        with self.assertRaisesRegex(ValueError, 'No verified'):
+        with self.assertRaisesRegex(ValueError, 'Expected exactly one'):
             port.install_noauth_boot_adb(self.root, assets)
         apex.write_bytes(original)
         (profile / 'ace3v-adbd').write_bytes(b'tampered')
@@ -389,7 +400,7 @@ class PortFlowTests(unittest.TestCase):
         with patch.object(port, 'compile_policy', side_effect=compile_check) as compile_mock:
             report = port.finish(self.root, 'OnePlusAce3V', stock, self.a15_assets(), adb=True)
         compile_mock.assert_called_once_with(self.root, 'secilc', enforcing=True)
-        self.assertFalse(report['force_adb'])
+        self.assertTrue(report['force_adb'])
         self.assertFalse(report['secure_boot_adb'])
         self.assertTrue(report['noauth_boot_adb'])
         self.assertTrue(report['permission_roles']['original_permission_module_preserved'])
@@ -511,7 +522,7 @@ class PortFlowTests(unittest.TestCase):
         self.assertEqual(meta.fs['system/system/bin/ace3v-adbd'], ['0', '0', '0755'])
         self.assertEqual(meta.ctx['system/system/bin/ace3v-adbd'], ['u:object_r:adbd_exec:s0'])
         rc = (self.root / 'system/system/etc/init/hyperos_force_adb.rc').read_text()
-        self.assertEqual(rc.count('mount none /system/bin/ace3v-adbd /apex/com.android.adbd/bin/adbd bind'), 1)
+        self.assertEqual(rc.count('mount none /system/bin/ace3v-adbd /apex/com.android.adbd/bin/adbd bind'), 4)
         self.assertNotIn('setprop service.adb.root 1', rc)
         self.assertEqual((self.root / 'vendor/etc/selinux/vendor_sepolicy.cil').read_text().count(
             '(allow init adbd_exec (file (mounton)))'), 1)
@@ -592,16 +603,17 @@ class PortFlowTests(unittest.TestCase):
         self.assertIn('service boringssl_self_test64 /system/bin/boringssl_self_test64', init)
         self.assertNotIn('reboot_on_failure', init)
         self.assertNotIn('ace3v-crypto-test', init)
-        self.assertIn('xeutoolbox -n ro.debuggable 0', init)
+        self.assertNotIn('xeutoolbox -n ro.debuggable 0', init)
         self.assertFalse((self.root / 'system_ext/priv-app/Provision/oat').exists())
         self.assertFalse((self.root / 'system_ext/priv-app/Provision/lib').exists())
-        expected = {'ro.debuggable': '0', 'ro.secure': '1', 'ro.adb.secure': '1'}
+        expected = {'ro.debuggable': '0', 'ro.secure': '1', 'ro.adb.secure': '0'}
         self.assertEqual({key: port.properties(self.root / 'system/system/etc/prop.default')[key]
                           for key in expected}, expected)
         self.assertEqual({key: port.properties(self.root / 'system/system/build.prop')[key]
                           for key in expected}, expected)
         self.assertFalse(result['force_adb'])
-        self.assertTrue(result['secure_boot_adb'])
+        self.assertFalse(result['secure_boot_adb'])
+        self.assertTrue(result['noauth_boot_adb'])
         self.assertTrue((self.root / 'system/system/etc/init/hyperos_force_adb.rc').is_file())
         self.assertEqual(port.properties(self.root / 'system/system/build.prop')['persist.sys.usb.config'], 'adb')
         self.assertIn('on property:ro.debuggable=1', (self.root / 'system_ext/etc/init/miuserfs.rc').read_text())
@@ -610,15 +622,15 @@ class PortFlowTests(unittest.TestCase):
         self.assertNotIn(b'\r', script.read_bytes())
         self.assertEqual(port.Metadata(self.root, 'system').fs['system/system/bin/ace3v-skip-setup.sh'][2], '0755')
 
-    def test_android16_insecure_adb_requires_explicit_flag(self):
+    def test_android16_flag_preserves_noauth_shell_privileges(self):
         port.assemble(self.root, True)
         stock = Path(self.tmp.name) / 'stock'
         fixture(stock)
         with patch.object(port, 'compile_policy', return_value={'compiled': True}):
             result = port.finish(self.root, 'OnePlusAce3V', stock, REPO / 'fixes', adb=True)
         props = port.properties(self.root / 'system/system/etc/prop.default')
-        self.assertEqual(props['ro.debuggable'], '1')
-        self.assertEqual(props['ro.secure'], '0')
+        self.assertEqual(props['ro.debuggable'], '0')
+        self.assertEqual(props['ro.secure'], '1')
         self.assertEqual(props['ro.adb.secure'], '0')
         self.assertTrue(result['force_adb'])
         self.assertFalse(result['secure_boot_adb'])

@@ -1,3 +1,9 @@
+> These profiles are optional caches. The shared installer now derives unknown
+> regional APEX packages from their own donor adbd and clears `auth_required`
+> (initializer and runtime stores), including vendor `ro.adb.secure=1`.
+> Older runtime verification below refers to the original cached patches.
+> See [current flow](../../../../docs/boot-fixes.md).
+
 # Android 15 boot ADB without host authentication
 
 This directory ships donor-specific daemons for Ace 3V HyperOS Android 15.

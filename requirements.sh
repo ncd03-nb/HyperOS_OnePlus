@@ -25,17 +25,17 @@ install_packages() {
     echo "== detected: $id_line =="
     case "$id_line" in
         *arch*|*manjaro*|*cachyos*|*endeavour*)
-            $SUDO pacman -Sy --needed --noconfirm python aria2 curl unzip zip tar secilc setools
+            $SUDO pacman -Sy --needed --noconfirm python aria2 curl unzip zip tar secilc setools e2fsprogs erofs-utils
             ;;
         *debian*|*ubuntu*|*mint*|*pop*)
             $SUDO apt-get update
-            $SUDO apt-get install -y python3 aria2 curl unzip zip tar secilc setools
+            $SUDO apt-get install -y python3 aria2 curl unzip zip tar secilc setools e2fsprogs erofs-utils
             ;;
         *fedora*|*rhel*|*centos*)
-            $SUDO dnf install -y python3 aria2 curl unzip zip tar secilc setools-console
+            $SUDO dnf install -y python3 aria2 curl unzip zip tar secilc setools-console e2fsprogs erofs-utils
             ;;
         *)
-            echo "unsupported distro; install manually: python3 aria2 curl unzip zip tar secilc seinfo (setools)"
+            echo "unsupported distro; install manually: python3 aria2 curl unzip zip tar secilc seinfo (setools) e2fsprogs erofs-utils"
             return 1
             ;;
     esac

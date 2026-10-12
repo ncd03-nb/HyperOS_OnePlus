@@ -3,6 +3,8 @@
 <displayConfiguration>
     <!-- Global Brightness-Nit mapping -->
     <screenBrightnessMap>
+        <!-- Cover donor framework minima down to zero without changing measured points. -->
+        <point><value>0.0</value><nits>0.0</nits></point>
         <point>
             <value>0.000854597</value>
             <nits>2.0</nits>

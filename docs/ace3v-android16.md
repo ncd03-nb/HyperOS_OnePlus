@@ -54,8 +54,10 @@ Actions execute the same porter; there is no runner-specific source patch.
 6. Use the minimal Provision APK, remove donor/Android 13 JNI and oat/vdex,
    remove Nothings.Provision overlay and XiaomiEUExt, and run a bounded setup
    bypass after SettingsProvider starts.
-7. Start ADB at boot while retaining authentication and privilege dropping to
-   UID 2000. Insecure/root ADB is an explicit `--force-adb` option only.
+7. Start no-auth ADB at boot using the shared donor-derived installer. Keep
+   UID 2000, `ro.secure=1` and `ro.debuggable=0`, including with `--force-adb`.
+   Preserve the signed APEX and the existing SELinux policy selection.
+   Validate the panel brightness map covers [0, 1] before packing.
 8. Compile split CIL using the stock vendor mapping version, keep the global
    SELinux runtime enforcing and replace precompiled policy/digests.
 
