@@ -9,6 +9,7 @@
 (typeattributeset file_type (ace3v_port_exec))
 (typeattributeset exec_type (ace3v_port_exec))
 (typeattributeset system_file_type (ace3v_port_exec))
+(allow init ace3v_port_exec (file (read open getattr execute map)))
 (allow init ace3v_port (process (transition)))
 (typetransition init ace3v_port_exec process ace3v_port)
 (allow ace3v_port ace3v_port_exec (file (read open getattr execute map entrypoint)))

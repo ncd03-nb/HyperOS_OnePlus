@@ -78,6 +78,56 @@ It does not claim whole-OTA signature verification. Repacking uses native
 Linux paths to retain symlinks and case-distinct files; image readback must
 match ownership, mode, capabilities, SELinux context and file contents.
 
+Modified SDK34 donors can include an empty
+`system_ext_sepolicy_and_mapping.sha256` to invalidate their original policy
+cache. After compiling the final port policy, the finishing pass regenerates
+each partition's CIL + selected mapping hash and synchronizes the cache stamps
+in vendor and odm, including the debug copies. Android init rejects empty hashes
+even when both copies are empty. Stamps are refreshed only after compilation and
+the enforcing-policy audit succeed; this preserves the fallback CIL and avoids
+unnecessary on-device compilation. This cache correction alone does not establish
+that a donor's early reboot is fixed.
+
+A later HyperOS 2 SDK34 donor failed before RC service startup. An init log
+captured `Failed to initialize property area` followed by InitFatalReboot
+and fastboot. Four shared FOD property overrides referenced
+`vendor_finerprint_optical_rawdata`, which its Android 14 vendor policy did not
+declare. The finishing pass now removes only those four optional overrides
+when that vendor type is absent, preserving the base's property routing.
+It retains them on vendors declaring the type. The enforcing compiler also
+checks every shipped property-context label against the final binary policy
+before marking caches usable; an unrelated undefined type fails the build
+with its file and line instead of producing an image that init cannot boot.
+The init log mirror used to diagnose this failure is temporary and is not
+part of the porter or delivered ROM.
+
+Removing those undefined labels let the HyperOS 2 donor reach bootanimation
+and no-auth ADB (shell UID2000, Enforcing). SurfaceFlinger then repeatedly
+crashed in `MiSurfaceFlingerImpl::parseIdleFpsByBrightness` / `splitString`.
+This donor ORs `ro.vendor.display.idle_default_fps.support` with its LTPO
+flag and parses `primary_idle_refresh_rate` as two colon-separated lists.
+The non-LTPO profile used the scalar `60` but retained the first flag as true.
+The shared non-LTPO panel policy and SDK34/35/36 profiles now explicitly
+disable that flag while retaining 120/90/60 display modes and the scalar 60
+idle rate. The SurfaceFlinger libraries are unchanged.
+
+The SDK34/35 service domain also needs init's read/open/getattr/execute/map
+permissions on `ace3v_port_exec`, in addition to the existing process transition
+and domain entrypoint rules. Without those file permissions, init cannot launch
+the system-UID hardware/provisioning helper. The corrected SDK34 policy was
+compiled and repacked into vendor/odm with metadata readback checks. On the
+device, the helper ran as UID1000 in `ace3v_port`; the DSU remained booted for
+more than four minutes after boot completion, and the user confirmed that the
+900E failure no longer occurred. This is a limited device observation, not a
+claim that every donor or a longer session is stable. SELinux remained Enforcing
+and the ADB shell remained UID2000. No temporary kernel recorder, freezer
+override or diagnostic init changes are included in this repository fix.
+
+The separate black flash on app launch was a bundled MiuiHome constructor
+compatibility bug, reproduced by the user on the original Mi 11 Ultra too.
+Its fix belongs to xiaomi-toolbuild's OS2 launcher, rather than the OnePlus
+display policy. The launcher update was installed and verified separately.
+
 The initial device boot reached bootanimation but looped in PackageManager and
 entered recovery through RescueParty. R3 boot and the stock Google update's
 login-screen behavior are confirmed. R4 boot and its Control Center SIM/Wi-Fi

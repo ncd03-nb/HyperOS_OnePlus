@@ -128,6 +128,12 @@ class PortFlowTests(unittest.TestCase):
                 self.assertEqual(report['optional_oem_bind_wait_removed'], ['/mnt/vendor/my_product'])
                 self.assertIn('none ro,bind nofail\n', fstab.read_text())
                 self.assertIn('f2fs rw wait,check,formattable', fstab.read_text())
+                if sdk in (34, 35, 36):
+                    panel = port.properties(self.root / 'vendor/build.prop')
+                    self.assertEqual(panel['ro.vendor.mi_sf.ltpo.support'], 'false')
+                    self.assertEqual(panel['ro.vendor.display.idle_default_fps.support'], 'false')
+                    self.assertEqual(panel['ro.vendor.display.primary_idle_refresh_rate'], '60')
+                    self.assertEqual(panel['ro.vendor.display.dynamic_refresh_rate'], '120,90,60')
                 if sdk == 34:
                     self.assertTrue(report['ace3v_android14'])
                     self.assertTrue(report['noauth_boot_adb'])

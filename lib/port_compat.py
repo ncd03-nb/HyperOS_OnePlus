@@ -774,6 +774,83 @@ def clean_crypto(root):
     return removed
 
 
+def refresh_policy_digests(root, version):
+    """Stamp the CIL used for the new cache, including invalidated donor hashes."""
+    digests = {}
+    for part, stem in (('system/system', 'plat'), ('system_ext', 'system_ext'), ('product', 'product')):
+        base = root / part / 'etc/selinux'
+        digest = hashlib.sha256((base / (stem + '_sepolicy.cil')).read_bytes() +
+                                (base / 'mapping' / (version + '.cil')).read_bytes()).hexdigest()
+        name = stem + '_sepolicy_and_mapping.sha256'
+        write(base / name, digest + '\n')
+        partition = part.split('/')[0]
+        rel = ('system/' if partition == 'system' else '') + 'etc/selinux/' + name
+        meta = Metadata(root, partition)
+        if partition + '/' + rel not in meta.fs:
+            meta.pin(rel)
+        meta.save()
+        digests[stem] = digest
+    return digests
+
+
+def reconcile_fingerprint_property_contexts(root):
+    """Keep the optional newer OnePlus mapping only if its vendor declares it.
+
+    Four porter-added prefixes used an Android 15/16 vendor type that does not
+    exist in Ace 3V Android 14. Init then fails labeling the property areas,
+    before RC actions or ADB can run. Removing these overrides retains the
+    base's existing property routing; do not invent a replacement type.
+    """
+    path = root / 'vendor/etc/selinux/vendor_property_contexts'
+    cil = root / 'vendor/etc/selinux/vendor_sepolicy.cil'
+    if not path.is_file() or not cil.is_file():
+        return []
+    name = 'vendor_finerprint_optical_rawdata'
+    if re.search(r'\(type\s+' + name + r'\s*\)', cil.read_text('utf-8')):
+        return []
+    prefixes = {'persist.vendor.fingerprint.', 'persist.vendor.fp.',
+                'persist.vendor.side.fp.', 'vendor.oplus.fingerprint.'}
+    removed, kept = [], []
+    for line in path.read_text('utf-8').splitlines():
+        fields = line.split()
+        if (len(fields) >= 2 and fields[0] in prefixes
+                and fields[1] == 'u:object_r:' + name + ':s0'):
+            removed.append(fields[0])
+        else:
+            kept.append(line)
+    if removed:
+        write(path, '\n'.join(kept) + '\n')
+    return removed
+
+
+def validate_property_contexts(root, policy):
+    """Reject undefined property labels before packaging a boot image."""
+    files = [path for part in PARTS for path in (root / part).rglob('*property_contexts')
+             if path.is_file()]
+    if not files:
+        return {'files': 0, 'labels': 0}
+    query = subprocess.run(['seinfo', str(policy), '-t'], check=True,
+                           capture_output=True, text=True)
+    valid_types = set(query.stdout.split())
+    labels = set()
+    errors = []
+    for path in files:
+        for number, line in enumerate(path.read_text('utf-8').splitlines(), 1):
+            if not line.strip() or line.lstrip().startswith('#'):
+                continue
+            fields = line.split()
+            context = fields[1].split(':', 3) if len(fields) >= 2 else []
+            if (len(context) != 4 or context[:2] != ['u', 'object_r']
+                    or context[2] not in valid_types):
+                errors.append(f'{path.relative_to(root)}:{number}: {line}')
+            else:
+                labels.add(fields[1])
+    if errors:
+        raise ValueError('Property contexts have invalid SELinux labels; init cannot '
+                         'initialize property areas:\n' + '\n'.join(errors))
+    return {'files': len(files), 'labels': len(labels)}
+
+
 def compile_policy(root, compiler='secilc', enforcing=False):
     vendor = root / 'vendor/etc/selinux'
     version = (vendor / 'plat_sepolicy_vers.txt').read_text('utf-8').strip()
@@ -811,6 +888,7 @@ def compile_policy(root, compiler='secilc', enforcing=False):
     if not enforcing:
         write(policy, text.rstrip() + '\n; Ace 3V development port: permissive\n' +
               ''.join(f'(typepermissive {name})\n' for name in sorted(types - existing)))
+    removed_property_overrides = reconcile_fingerprint_property_contexts(root)
     output = root / 'odm/etc/selinux/precompiled_sepolicy'
     subprocess.run([compiler, '-m', '-M', 'true', '-G', '-N', '-c', '30',
                     '-o', str(output), '-f', os.devnull, *map(str, inputs)], check=True)
@@ -821,6 +899,12 @@ def compile_policy(root, compiler='secilc', enforcing=False):
                                capture_output=True, text=True)
         if not re.search(r'Permissive Types:\s+0\b', audit.stdout):
             raise ValueError('Compiled policy contains permissive domains: ' + audit.stdout)
+    property_audit = validate_property_contexts(root, output) if enforcing else None
+    # Modified donors can ship an empty/stale hash to force on-device CIL
+    # compilation. We have just compiled the final inputs, so regenerate stamps
+    # before synchronizing vendor/odm; matching empty strings are not accepted
+    # by Android init's FindPrecompiledSplitPolicy.
+    digests = refresh_policy_digests(root, version)
     for base in (vendor, output.parent):
         part = 'vendor' if base == vendor else 'odm'
         meta = Metadata(root, part)
@@ -845,6 +929,9 @@ def compile_policy(root, compiler='secilc', enforcing=False):
     return {'mapping': version, 'policy_version': 30,
             'enforcing': enforcing, 'permissive_types': 0 if enforcing else len(types),
             'neverallow_build_checks': False,
+            'policy_digests': digests,
+            'fingerprint_property_overrides_removed': removed_property_overrides,
+            'property_contexts': property_audit,
             'sha256': hashlib.sha256(output.read_bytes()).hexdigest()}
 
 
@@ -897,6 +984,7 @@ def finish(root, device, stock, assets, adb=False, compiler='secilc'):
             shutil.rmtree(provision / folder, ignore_errors=True)
     if device == 'OnePlusAce3V':
         report['optional_oem_bind_wait_removed'] = remove_optional_oem_bind_wait(root)
+        report['fingerprint_property_overrides_removed'] = reconcile_fingerprint_property_contexts(root)
     if ace_full:
         if ace_enforcing:
             report['setupwizard_removed'] = remove_setupwizard(root)

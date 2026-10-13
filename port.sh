@@ -617,6 +617,9 @@ prop_set "$VENDOR/build.prop" "persist.sys.miui_resolution" "${DEV_miui_resoluti
 if [ "${DEV_ltpo:-}" = "false" ]; then
     log "    panel policy: fixed-mode/non-LTPO (${DEV_refresh_rates:-120,90,60})"
     prop_set "$VENDOR/build.prop" "ro.vendor.mi_sf.ltpo.support" "false"
+    # Some Xiaomi SF versions OR this flag with ltpo.support and then parse
+    # primary_idle_refresh_rate as a brightness/FPS table, not a scalar.
+    prop_set "$VENDOR/build.prop" "ro.vendor.display.idle_default_fps.support" "false"
     prop_set "$VENDOR/build.prop" "ro.vendor.mi_sf.support_gradient_idleframerate" "false"
     prop_set "$VENDOR/build.prop" "ro.vendor.mi_sf.aod_mode_ddic_refresh_rate" "60"
     prop_set "$VENDOR/build.prop" "ro.vendor.display.primary_idle_refresh_rate" "60"

@@ -11,6 +11,8 @@ ro.vendor.video.style.        u:object_r:exported_default_prop:s0
 ro.vendor.media.video.style.  u:object_r:exported_default_prop:s0
 ro.vendor.qos.                u:object_r:exported_default_prop:s0
 # group 2: let the OnePlus fingerprint HAL SET its own props at init.
+# The finishing pass keeps these four overrides only when the vendor CIL
+# declares vendor_finerprint_optical_rawdata (absent on Ace 3V Android 14).
 # vendor_finerprint_optical_rawdata is OnePlus's own (misspelled) type; do NOT
 # use oppo_fingerprint_prop here, it has no role binding and bootloops.
 persist.vendor.fingerprint.   u:object_r:vendor_finerprint_optical_rawdata:s0
