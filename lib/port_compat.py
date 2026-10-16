@@ -208,6 +208,87 @@ def donor_name(root):
     raise ValueError('Missing donor ro.product.mod_device; cannot select FeatureParser XML')
 
 
+DONOR_PROP_PATHS = ('system/system/build.prop', 'system/system/etc/build.prop',
+                    'system_ext/build.prop', 'system_ext/etc/build.prop',
+                    'product/build.prop', 'product/etc/build.prop', 'mi_ext/etc/build.prop')
+IDENTITY_FIELDS = ('model', 'device', 'name')
+
+
+def snapshot_donor_identity(root):
+    """Save SDK37 donor identity before Pangu/mi_ext or target overlays replace it."""
+    snapshot = root / 'donor_identity.json'
+    if snapshot.is_file():
+        result = json.loads(snapshot.read_text('utf-8'))
+        if (result.get('sdk') != 37 or
+                any(not isinstance(result.get('identity', {}).get(key), str)
+                    or not result['identity'][key].strip() for key in IDENTITY_FIELDS)):
+            raise ValueError('Invalid original donor identity snapshot')
+        return result
+    props = {}
+    for rel in DONOR_PROP_PATHS:
+        props.update(properties(root / rel))
+    # These are exclusively donor partitions. Never infer Xiaomi identity from
+    # the OnePlus vendor/odm, even if property_source_order lists them first.
+    order = props.get('ro.product.property_source_order',
+                      'product,odm,vendor,system_ext,system').split(',')
+    order = [source.strip() for source in order
+             if source.strip() in ('product', 'system_ext', 'system', 'mi_ext')]
+    order += [source for source in ('product', 'system_ext', 'system', 'mi_ext') if source not in order]
+    identity = {}
+    for field in IDENTITY_FIELDS:
+        keys = ['ro.product.' + field] + ['ro.product.' + source + '.' + field for source in order]
+        identity[field] = next((props[key] for key in keys if props.get(key, '').strip()), '')
+    if not identity['device']:
+        identity['device'] = props.get('ro.build.product', '')
+    if not identity['name']:
+        identity['name'] = identity['device']
+    missing = [key for key in IDENTITY_FIELDS if not identity[key].strip()]
+    if missing:
+        raise ValueError('Cannot preserve SDK37 donor identity; missing donor ' + ', '.join(missing))
+    # Keep any partition-specific donor values too, so a merged generic build.prop
+    # cannot leave a stray ro.product.system.device/model=ossi behind.
+    aliases = {key: value for key, value in props.items()
+               if re.fullmatch(r'ro\.product\.(?:system|system_ext|product|mi_ext)\.(?:model|device|name)', key)}
+    result = {'sdk': 37, 'identity': identity, 'partition_properties': aliases,
+              'build_product': props.get('ro.build.product') or identity['device']}
+    write(snapshot, json.dumps(result, ensure_ascii=False, indent=2) + '\n')
+    return result
+
+
+def restore_donor_identity(root):
+    saved = snapshot_donor_identity(root)
+    identity = saved['identity']
+    global_props = {'ro.product.' + field: value for field, value in identity.items()}
+    global_props['ro.build.product'] = saved.get('build_product', identity['device'])
+    changed = []
+    for rel in DONOR_PROP_PATHS:
+        path = root / rel
+        if not path.is_file():
+            continue
+        current = properties(path)
+        values = dict(global_props) if rel == 'system/system/build.prop' else {
+            key: value for key, value in global_props.items() if key in current}
+        for key in current:
+            match = re.fullmatch(r'ro\.product\.(?:system|system_ext|product|mi_ext)\.(model|device|name)', key)
+            if match:
+                values[key] = saved['partition_properties'].get(key, identity[match[1]])
+        if values:
+            set_props(path, values)
+            changed.append(rel)
+    # ODM has priority over donor partition aliases in stock property derivation.
+    # Both supported ODM layouts must agree; keep hardware/vendor identity intact.
+    values = dict(global_props)
+    values.update({'ro.product.odm.' + field: value for field, value in identity.items()})
+    meta = Metadata(root, 'odm')
+    for rel, context in (('build.prop', 'vendor_file'), ('etc/build.prop', 'vendor_configs_file')):
+        set_props(root / 'odm' / rel, values, strip_imports=True)
+        meta.pin(rel, context, '0644')
+        changed.append('odm/' + rel)
+    meta.save()
+    return {'identity': identity, 'files': changed, 'snapshot': 'donor_identity.json',
+            'hardware_vendor_identity_preserved': True}
+
+
 class Metadata:
     """Keep the complete fs_config tail (including capabilities) when relocating."""
     def __init__(self, root, part):
@@ -275,6 +356,8 @@ def link(path, target):
 
 
 def assemble(root, ace16):
+    if sdk(root) == 37:
+        snapshot_donor_identity(root)
     if os.name != 'nt':
         # Windows MIO extraction encodes links as small SYSTEM-attribute files.
         # On Linux convert these before merging/repacking extracted-tree input.
@@ -1097,6 +1180,8 @@ def finish(root, device, stock, assets, adb=False, compiler='secilc'):
             report['selinux'] = compile_policy(root, compiler, enforcing=True)
     if adb and not ace_adb:
         force_adb(root, assets, ace16=ace16)
+    if report['donor_sdk'] == 37:
+        report['donor_identity'] = restore_donor_identity(root)
     write(root / 'port_compat.json', json.dumps(report, indent=2) + '\n')
     return report
 

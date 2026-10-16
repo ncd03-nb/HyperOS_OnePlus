@@ -60,6 +60,9 @@ def fixture(root, sdk=36):
     }
     for rel, value in files.items():
         port.write(root / rel, value)
+    port.set_props(root / 'product/etc/build.prop', {
+        'ro.product.product.model': '24069PC21G',
+        'ro.product.product.device': 'peridot', 'ro.product.product.name': 'peridot_global'})
     if sdk in (36, 37):
         for name in ('com.google.android.adbd_compressed.apex', 'com.android.adbd.capex'):
             (root / 'system/system/apex' / name).unlink()
@@ -565,6 +568,82 @@ class PortFlowTests(unittest.TestCase):
         self.assertTrue((self.root / 'system/system/bin/helper').is_file())
         self.assertTrue((self.root / 'mi_ext/etc/build.prop').is_file())
         self.assertFalse((self.root / 'system/system/etc/init/ace3v-port.rc').exists())
+
+    def test_android17_preserves_donor_identity_through_pangu_and_odm_overrides(self):
+        for device in ('OnePlusAce3V', 'OnePlus13', 'Auto-PJF110'):
+            with self.subTest(device=device):
+                root = Path(self.tmp.name) / device
+                fixture(root, 37)
+                port.set_props(root / 'product/etc/build.prop', {
+                    'ro.product.product.model': 'Xiaomi 17 Ultra',
+                    'ro.product.product.device': 'nezha',
+                    'ro.product.product.name': 'nezha_global'})
+                port.write(root / 'product/pangu/system/build.prop',
+                           'ro.build.version.sdk=37\nro.product.model=ossi\n'
+                           'ro.product.device=ossi\nro.product.name=ossi\n'
+                           'ro.product.system.model=ossi\nro.product.system.device=ossi\n')
+                port.set_props(root / 'odm/build.prop', {
+                    'ro.product.odm.model': 'ossi', 'ro.product.odm.device': 'ossi',
+                    'ro.product.odm.name': 'ossi', 'ro.vendor.oplus.hardware': 'keep'})
+                vendor_before = (root / 'vendor/build.prop').read_bytes()
+                port.assemble(root, False)
+                self.assertEqual(port.properties(root / 'system/system/build.prop')['ro.product.model'], 'ossi')
+                report = port.finish(root, device, None, REPO / 'fixes')
+                expected = {'model': 'Xiaomi 17 Ultra', 'device': 'nezha', 'name': 'nezha_global'}
+                self.assertEqual(report['donor_identity']['identity'], expected)
+                for rel in ('system/system/build.prop', 'odm/build.prop', 'odm/etc/build.prop'):
+                    props = port.properties(root / rel)
+                    for field, value in expected.items():
+                        self.assertEqual(props['ro.product.' + field], value)
+                        if rel.startswith('odm/'):
+                            self.assertEqual(props['ro.product.odm.' + field], value)
+                    self.assertEqual(props['ro.build.product'], 'nezha')
+                self.assertEqual(port.properties(root / 'system/system/build.prop')['ro.product.system.device'], 'nezha')
+                self.assertEqual(port.properties(root / 'odm/build.prop')['ro.vendor.oplus.hardware'], 'keep')
+                self.assertEqual((root / 'vendor/build.prop').read_bytes(), vendor_before)
+                self.assertEqual(port.properties(root / 'product/etc/build.prop')['ro.product.mod_device'], 'peridot')
+                meta = port.Metadata(root, 'odm')
+                self.assertEqual(meta.fs['odm/etc/build.prop'], ['0', '0', '0644'])
+                self.assertEqual(meta.ctx['odm/etc/build.prop'], ['u:object_r:vendor_configs_file:s0'])
+                before = (root / 'odm/build.prop').read_bytes()
+                port.restore_donor_identity(root)
+                self.assertEqual((root / 'odm/build.prop').read_bytes(), before)
+
+    def test_donor_identity_uses_explicit_values_and_regional_product_name(self):
+        port.set_props(self.root / 'system/system/build.prop', {
+            'ro.build.version.sdk': '37', 'ro.product.model': 'Xiaomi 17',
+            'ro.product.device': 'pudding', 'ro.product.name': 'pudding_eea',
+            'ro.build.product': 'pudding_internal',
+            'ro.product.property_source_order': 'odm,vendor,system,product,system_ext'})
+        result = port.snapshot_donor_identity(self.root)
+        self.assertEqual(result['identity'], {
+            'model': 'Xiaomi 17', 'device': 'pudding', 'name': 'pudding_eea'})
+        port.restore_donor_identity(self.root)
+        self.assertEqual(port.properties(self.root / 'system/system/build.prop')['ro.build.product'],
+                         'pudding_internal')
+
+    def test_donor_identity_honors_donor_source_order_without_stock_fallback(self):
+        port.set_props(self.root / 'system/system/build.prop', {
+            'ro.build.version.sdk': '37', 'ro.product.system.model': 'Donor System Model',
+            'ro.product.system.device': 'donor_system', 'ro.product.system.name': 'donor_system_global',
+            'ro.product.property_source_order': 'odm,vendor,system,product,system_ext'})
+        result = port.snapshot_donor_identity(self.root)
+        self.assertEqual(result['identity'], {
+            'model': 'Donor System Model', 'device': 'donor_system', 'name': 'donor_system_global'})
+
+    def test_missing_donor_model_fails_before_merging_instead_of_using_oneplus(self):
+        port.set_props(self.root / 'system/system/build.prop', {'ro.build.version.sdk': '37'})
+        product = self.root / 'product/etc/build.prop'
+        port.write(product, product.read_text().replace('ro.product.product.model=24069PC21G\n', ''))
+        before = (self.root / 'system/system/build.prop').read_bytes()
+        with self.assertRaisesRegex(ValueError, 'missing donor model'):
+            port.assemble(self.root, False)
+        self.assertEqual((self.root / 'system/system/build.prop').read_bytes(), before)
+        self.assertFalse((self.root / 'donor_identity.json').exists())
+
+    def test_android16_identity_policy_is_unchanged(self):
+        port.assemble(self.root, True)
+        self.assertFalse((self.root / 'donor_identity.json').exists())
 
     def test_wrong_android_apex_is_rejected(self):
         stock = Path(self.tmp.name) / 'stock17'

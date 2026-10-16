@@ -8,6 +8,14 @@ An auto-porter that builds a HyperOS ROM for OnePlus phones. It supports
 - `system`, `system_ext` and `product` come from the **HyperOS donor**, with
   `mi_ext` merged in.
 
+HyperOS 4 / Android 17 (SDK37) keeps the donor's model, device codename and
+regional product name. These values are captured before the Pangu/mi_ext merge
+and restored in the final system/ODM properties, including both ODM build.prop
+layouts. The OnePlus vendor hardware properties stay with the stock base.
+The saved donor values and applied changes appear in `donor_identity.json`
+and the `donor_identity` section of `port_compat.json`. A missing donor model
+fails before merging instead of substituting a OnePlus or reference identity.
+
 The output is an uncompressed zip containing `system.img`, `system_ext.img`,
 `product.img`, `vendor.img` and `odm.img`.
 
