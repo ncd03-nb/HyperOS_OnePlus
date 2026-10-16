@@ -214,19 +214,52 @@ DONOR_PROP_PATHS = ('system/system/build.prop', 'system/system/etc/build.prop',
 IDENTITY_FIELDS = ('model', 'device', 'name')
 
 
+def resolve_generic_donor_identity(saved, props):
+    """SDK37 Xiaomi product images can advertise miproduct instead of the SKU."""
+    identity = saved['identity']
+    mod_device = saved.get('mod_device') or props.get('ro.product.mod_device', '')
+    name = identity.get('name', '')
+    donor = mod_device.removesuffix('_global')
+    if not donor and name.startswith('miproduct_'):
+        donor = name.removeprefix('miproduct_').removesuffix('_global')
+    if not donor and identity.get('device') != 'miproduct':
+        donor = identity.get('device', '')
+    if donor == 'miproduct' or not re.fullmatch(r'[A-Za-z0-9_-]+', donor):
+        donor = ''
+    if any(identity.get(key) == 'miproduct' for key in ('model', 'device')) and not donor:
+        raise ValueError('Generic miproduct identity has no donor codename')
+
+    def normalize(field, value):
+        if value == 'miproduct':
+            return donor
+        if field == 'name' and value.startswith('miproduct_'):
+            return value.removeprefix('miproduct_')
+        return value
+
+    saved['identity'] = {key: normalize(key, value) for key, value in identity.items()}
+    saved['partition_properties'] = {
+        key: normalize(key.rsplit('.', 1)[-1], value)
+        for key, value in saved.get('partition_properties', {}).items()}
+    saved['build_product'] = normalize('device', saved.get('build_product', identity['device']))
+    saved['mod_device'] = mod_device
+    return saved
+
+
 def snapshot_donor_identity(root):
     """Save SDK37 donor identity before Pangu/mi_ext or target overlays replace it."""
     snapshot = root / 'donor_identity.json'
+    props = {}
+    for rel in DONOR_PROP_PATHS:
+        props.update(properties(root / rel))
     if snapshot.is_file():
         result = json.loads(snapshot.read_text('utf-8'))
         if (result.get('sdk') != 37 or
                 any(not isinstance(result.get('identity', {}).get(key), str)
                     or not result['identity'][key].strip() for key in IDENTITY_FIELDS)):
             raise ValueError('Invalid original donor identity snapshot')
+        result = resolve_generic_donor_identity(result, props)
+        write(snapshot, json.dumps(result, ensure_ascii=False, indent=2) + '\n')
         return result
-    props = {}
-    for rel in DONOR_PROP_PATHS:
-        props.update(properties(root / rel))
     # These are exclusively donor partitions. Never infer Xiaomi identity from
     # the OnePlus vendor/odm, even if property_source_order lists them first.
     order = props.get('ro.product.property_source_order',
@@ -250,7 +283,9 @@ def snapshot_donor_identity(root):
     aliases = {key: value for key, value in props.items()
                if re.fullmatch(r'ro\.product\.(?:system|system_ext|product|mi_ext)\.(?:model|device|name)', key)}
     result = {'sdk': 37, 'identity': identity, 'partition_properties': aliases,
-              'build_product': props.get('ro.build.product') or identity['device']}
+              'build_product': props.get('ro.build.product') or identity['device'],
+              'mod_device': props.get('ro.product.mod_device', '')}
+    result = resolve_generic_donor_identity(result, props)
     write(snapshot, json.dumps(result, ensure_ascii=False, indent=2) + '\n')
     return result
 
@@ -266,6 +301,8 @@ def restore_donor_identity(root):
         if not path.is_file():
             continue
         current = properties(path)
+        # Init loads explicit system globals before deriving identity from ODM
+        # aliases. Restore these too so Build.MODEL/DEVICE cannot keep miproduct.
         values = dict(global_props) if rel == 'system/system/build.prop' else {
             key: value for key, value in global_props.items() if key in current}
         for key in current:
@@ -279,12 +316,17 @@ def restore_donor_identity(root):
     # Both supported ODM layouts must agree; keep hardware/vendor identity intact.
     values = dict(global_props)
     values.update({'ro.product.odm.' + field: value for field, value in identity.items()})
-    meta = Metadata(root, 'odm')
-    for rel, context in (('build.prop', 'vendor_file'), ('etc/build.prop', 'vendor_configs_file')):
-        set_props(root / 'odm' / rel, values, strip_imports=True)
-        meta.pin(rel, context, '0644')
+    for rel in ('build.prop', 'etc/build.prop'):
+        path = root / 'odm' / rel
+        if not path.is_file():
+            continue
+        # Init prefers /odm/etc/build.prop when present, falling back to
+        # /odm/build.prop. Creating an identity-only file here hides all the
+        # stock ABI/ro.zygote overrides and can trigger the 32-bit BoringSSL
+        # self-test on this arm64-only base. Update existing files in place;
+        # preserve their other properties, imports, modes and SELinux labels.
+        set_props(path, values)
         changed.append('odm/' + rel)
-    meta.save()
     return {'identity': identity, 'files': changed, 'snapshot': 'donor_identity.json',
             'hardware_vendor_identity_preserved': True}
 

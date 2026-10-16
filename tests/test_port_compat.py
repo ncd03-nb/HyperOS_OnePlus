@@ -587,6 +587,7 @@ class PortFlowTests(unittest.TestCase):
                     'ro.product.odm.name': 'ossi', 'ro.vendor.oplus.hardware': 'keep'})
                 vendor_before = (root / 'vendor/build.prop').read_bytes()
                 port.assemble(root, False)
+                odm_metadata_before = (root / 'config/odm_file_contexts').read_bytes()
                 self.assertEqual(port.properties(root / 'system/system/build.prop')['ro.product.model'], 'ossi')
                 report = port.finish(root, device, None, REPO / 'fixes')
                 expected = {'model': 'Xiaomi 17 Ultra', 'device': 'nezha', 'name': 'nezha_global'}
@@ -604,10 +605,51 @@ class PortFlowTests(unittest.TestCase):
                 self.assertEqual(port.properties(root / 'product/etc/build.prop')['ro.product.mod_device'], 'peridot')
                 meta = port.Metadata(root, 'odm')
                 self.assertEqual(meta.fs['odm/etc/build.prop'], ['0', '0', '0644'])
-                self.assertEqual(meta.ctx['odm/etc/build.prop'], ['u:object_r:vendor_configs_file:s0'])
+                self.assertEqual((root / 'config/odm_file_contexts').read_bytes(), odm_metadata_before)
                 before = (root / 'odm/build.prop').read_bytes()
                 port.restore_donor_identity(root)
                 self.assertEqual((root / 'odm/build.prop').read_bytes(), before)
+
+    def test_android17_identity_does_not_shadow_root_odm_abi_with_new_etc_file(self):
+        port.set_props(self.root / 'system/system/build.prop', {'ro.build.version.sdk': '37'})
+        (self.root / 'odm/etc/build.prop').unlink()
+        port.set_props(self.root / 'vendor/build.prop', {
+            'ro.zygote': 'zygote64_32',
+            'ro.vendor.product.cpu.abilist32': 'armeabi-v7a,armeabi'})
+        overrides = {'ro.zygote': 'zygote64', 'ro.vendor.product.cpu.abilist32': '',
+                     'ro.vendor.product.cpu.abilist': 'arm64-v8a'}
+        port.set_props(self.root / 'odm/build.prop', overrides)
+        configs = {suffix: (self.root / ('config/odm_' + suffix)).read_bytes()
+                   for suffix in ('fs_config', 'file_contexts')}
+        port.assemble(self.root, False)
+        port.finish(self.root, 'OnePlusAce3V', None, REPO / 'fixes')
+        self.assertFalse((self.root / 'odm/etc/build.prop').exists())
+        effective = port.properties(self.root / 'vendor/build.prop')
+        selected = self.root / 'odm/etc/build.prop'
+        if not selected.exists():
+            selected = self.root / 'odm/build.prop'
+        effective.update(port.properties(selected))
+        for key, value in overrides.items():
+            self.assertEqual(effective[key], value)
+        self.assertEqual(effective['ro.product.model'], '24069PC21G')
+        for suffix, data in configs.items():
+            self.assertEqual((self.root / ('config/odm_' + suffix)).read_bytes(), data)
+
+    def test_android17_identity_preserves_existing_etc_only_odm_properties_and_imports(self):
+        port.set_props(self.root / 'system/system/build.prop', {'ro.build.version.sdk': '37'})
+        (self.root / 'odm/build.prop').unlink()
+        path = self.root / 'odm/etc/build.prop'
+        port.write(path, 'import /odm/etc/hardware.prop\nro.zygote=zygote64\n'
+                   'ro.vendor.product.cpu.abilist32=\nro.vendor.fixture=keep\n')
+        port.snapshot_donor_identity(self.root)
+        port.restore_donor_identity(self.root)
+        self.assertFalse((self.root / 'odm/build.prop').exists())
+        props = port.properties(path)
+        self.assertEqual(props['ro.zygote'], 'zygote64')
+        self.assertEqual(props['ro.vendor.product.cpu.abilist32'], '')
+        self.assertEqual(props['ro.vendor.fixture'], 'keep')
+        self.assertEqual(props['ro.product.model'], '24069PC21G')
+        self.assertIn('import /odm/etc/hardware.prop\n', path.read_text())
 
     def test_donor_identity_uses_explicit_values_and_regional_product_name(self):
         port.set_props(self.root / 'system/system/build.prop', {
@@ -640,6 +682,41 @@ class PortFlowTests(unittest.TestCase):
             port.assemble(self.root, False)
         self.assertEqual((self.root / 'system/system/build.prop').read_bytes(), before)
         self.assertFalse((self.root / 'donor_identity.json').exists())
+
+    def test_android17_generic_miproduct_uses_actual_donor_codename(self):
+        port.set_props(self.root / 'system/system/build.prop', {
+            'ro.build.version.sdk': '37', 'ro.product.model': 'miproduct',
+            'ro.product.device': 'miproduct', 'ro.product.name': 'miproduct_annibale',
+            'ro.build.product': 'miproduct'})
+        port.set_props(self.root / 'mi_ext/etc/build.prop', {'ro.product.mod_device': 'annibale'})
+        port.set_props(self.root / 'product/etc/build.prop', {
+            'ro.product.product.model': 'miproduct', 'ro.product.product.device': 'miproduct',
+            'ro.product.product.name': 'miproduct_annibale'})
+        port.assemble(self.root, False)
+        result = port.finish(self.root, 'OnePlusAce3V', None, REPO / 'fixes')
+        self.assertEqual(result['donor_identity']['identity'], dict.fromkeys(port.IDENTITY_FIELDS, 'annibale'))
+        system = port.properties(self.root / 'system/system/build.prop')
+        for key in ('ro.product.model', 'ro.product.device', 'ro.product.name', 'ro.build.product'):
+            self.assertEqual(system[key], 'annibale', key)
+        product = port.properties(self.root / 'product/etc/build.prop')
+        for field in port.IDENTITY_FIELDS:
+            self.assertEqual(product['ro.product.product.' + field], 'annibale')
+        for rel in ('system/system/build.prop', 'product/etc/build.prop', 'odm/build.prop'):
+            props = port.properties(self.root / rel)
+            for key, value in props.items():
+                if re.fullmatch(r'ro\.product\.(?:(?:odm|product)\.)?(model|device|name)|ro.build.product', key):
+                    self.assertEqual(value, 'annibale', key)
+
+    def test_generic_product_name_preserves_region_without_replacing_real_model(self):
+        saved = {'identity': {'model': 'Xiaomi donor model', 'device': 'miproduct',
+                              'name': 'miproduct_annibale_global'},
+                 'partition_properties': {}, 'build_product': 'miproduct'}
+        result = port.resolve_generic_donor_identity(saved, {'ro.product.mod_device': 'annibale_global'})
+        self.assertEqual(result['identity'], {'model': 'Xiaomi donor model', 'device': 'annibale',
+                                              'name': 'annibale_global'})
+        self.assertEqual(result['build_product'], 'annibale')
+        with self.assertRaisesRegex(ValueError, 'no donor codename'):
+            port.resolve_generic_donor_identity({'identity': dict.fromkeys(port.IDENTITY_FIELDS, 'miproduct')}, {})
 
     def test_android16_identity_policy_is_unchanged(self):
         port.assemble(self.root, True)

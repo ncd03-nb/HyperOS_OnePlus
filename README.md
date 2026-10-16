@@ -10,8 +10,18 @@ An auto-porter that builds a HyperOS ROM for OnePlus phones. It supports
 
 HyperOS 4 / Android 17 (SDK37) keeps the donor's model, device codename and
 regional product name. These values are captured before the Pangu/mi_ext merge
-and restored in the final system/ODM properties, including both ODM build.prop
-layouts. The OnePlus vendor hardware properties stay with the stock base.
+and restored in the final system/ODM properties. Only existing ODM build.prop
+paths are updated: creating `/odm/etc/build.prop` on a root-layout base would
+hide its complete `/odm/build.prop`, including arm64-only ABI and zygote overrides.
+Existing ODM imports and file metadata are retained. The OnePlus vendor hardware
+properties stay with the stock base.
+For generic Xiaomi identities such as `miproduct` / `miproduct_annibale`, the
+porter resolves the donor from `ro.product.mod_device` (or the product-name
+suffix), yielding `annibale` while preserving a real model or regional name.
+The final system build.prop receives the resolved `ro.product.model`,
+`ro.product.device`, `ro.product.name` and `ro.build.product` values too. Updating
+ODM aliases alone leaves Android's `Build.MODEL` / `Build.DEVICE` at `miproduct`
+when system already sets those top-level properties.
 The saved donor values and applied changes appear in `donor_identity.json`
 and the `donor_identity` section of `port_compat.json`. A missing donor model
 fails before merging instead of substituting a OnePlus or reference identity.
