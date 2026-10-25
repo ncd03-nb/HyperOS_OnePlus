@@ -194,6 +194,9 @@ class Response(io.BytesIO):
 
 class DriveTests(unittest.TestCase):
     def setUp(self):
+        env_patch = patch.dict(os.environ, {}, clear=True)
+        env_patch.start()
+        self.addCleanup(env_patch.stop)
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.output = Path(self.temp.name) / 'rom.zip'

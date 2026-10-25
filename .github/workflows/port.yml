@@ -88,10 +88,15 @@ jobs:
         run: python3 scripts/notify.py start
 
       - name: Install requirements
+        env:
+          DRIVE_SERVICE_ACCOUNT_CONFIGURED: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON != '' }}
         run: |
           python3 scripts/notify.py sync || true
           chmod +x requirements.sh port.sh
           ./requirements.sh 2>&1 | tee -a build_action.log
+          if [ "$DRIVE_SERVICE_ACCOUNT_CONFIGURED" = true ]; then
+            python3 -m pip install --disable-pip-version-check --quiet google-auth
+          fi
 
       - name: Free up disk space
         run: |
@@ -102,6 +107,10 @@ jobs:
         id: stock_probe
         env:
           STOCK_INPUT: ${{ inputs.stock_url }}
+          GOOGLE_DRIVE_DOWNLOAD_CREDENTIALS_JSON: ${{ secrets.GOOGLE_DRIVE_DOWNLOAD_CREDENTIALS_JSON }}
+          GOOGLE_OAUTH_CREDENTIALS_JSON: ${{ secrets.GOOGLE_OAUTH_CREDENTIALS_JSON }}
+          GOOGLE_OAUTH_REFRESH_TOKEN: ${{ secrets.GOOGLE_OAUTH_REFRESH_TOKEN }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
         run: |
           python3 scripts/notify.py download || true
           chmod +x scripts/actions_probe_stock.sh
@@ -115,6 +124,10 @@ jobs:
 
       - name: Build port
         env:
+          GOOGLE_DRIVE_DOWNLOAD_CREDENTIALS_JSON: ${{ secrets.GOOGLE_DRIVE_DOWNLOAD_CREDENTIALS_JSON }}
+          GOOGLE_OAUTH_CREDENTIALS_JSON: ${{ secrets.GOOGLE_OAUTH_CREDENTIALS_JSON }}
+          GOOGLE_OAUTH_REFRESH_TOKEN: ${{ secrets.GOOGLE_OAUTH_REFRESH_TOKEN }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           AUTO_PROFILE_CONF: ${{ steps.stock_probe.outputs.probe_conf }}
           STOCK_PROBED_PATH: ${{ steps.stock_probe.outputs.stock_path }}
           FORCE_ADB: ${{ inputs.force_adb }}

@@ -81,7 +81,9 @@ resolve_stock() {
                 *) out="$DL/stock.zip" ;;
             esac
             log "downloading stock ROM once for probe + build" >&2
-            if command -v aria2c >/dev/null 2>&1; then
+            if "$PY" "$HERE/lib/gdrive.py" --is-drive-url "$url"; then
+                "$PY" "$HERE/lib/gdrive.py" "$url" "$out" >&2
+            elif command -v aria2c >/dev/null 2>&1; then
                 aria2c -x16 -s16 -o "$(basename "$out")" -d "$DL" "$url" >&2
             elif command -v curl >/dev/null 2>&1; then
                 curl -L --fail -o "$out" "$url" >&2

@@ -1,0 +1,32 @@
+name: Check Drive ROM downloader
+on:
+  workflow_dispatch:
+    inputs:
+      source:
+        description: 'Optional Drive file URL/ID; verifies a range and fully downloads only files up to 64 MiB'
+        required: false
+        default: ''
+        type: string
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Test downloader and ROM input handling
+        run: |
+          python3 -m unittest discover -s tests -p test_gdrive_api.py -v
+          python3 -m unittest discover -s tests -p test_rom_input.py -v
+          bash -n port.sh scripts/actions_probe_stock.sh
+      - name: Check configured Drive access
+        if: inputs.source != ''
+        env:
+          DRIVE_CHECK_SOURCE: ${{ inputs.source }}
+          GOOGLE_DRIVE_DOWNLOAD_CREDENTIALS_JSON: ${{ secrets.GOOGLE_DRIVE_DOWNLOAD_CREDENTIALS_JSON }}
+          GOOGLE_OAUTH_CREDENTIALS_JSON: ${{ secrets.GOOGLE_OAUTH_CREDENTIALS_JSON }}
+          GOOGLE_OAUTH_REFRESH_TOKEN: ${{ secrets.GOOGLE_OAUTH_REFRESH_TOKEN }}
+        run: python3 scripts/check_drive_download.py

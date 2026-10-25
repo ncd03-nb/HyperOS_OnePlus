@@ -80,18 +80,37 @@ lands in `out/`. Super extraction is built into Python and requires neither
 `lpunpack` nor an intermediate full unsparse copy. Multi-device retrofit super
 images are unsupported.
 
-Google Drive public file share URLs are accepted directly, including the
-large-file confirmation step:
+Google Drive file share URLs are accepted directly. When download credentials
+are configured, both the stock probe and porter use the authenticated Drive v3
+API (`alt=media`), as the OneDrive copy bot does. Without credentials, public
+links use the anonymous large-file confirmation flow:
 
 ```bash
 ./port.sh --stock /path/to/stock.zip \
   --hyperos 'https://drive.google.com/file/d/FILE_ID/view?usp=sharing'
 ```
 
-Drive quota or permission errors stop the download; HTML error pages are never
-saved as ROM ZIPs. There is no guaranteed anonymous quota bypass. Use a mirror,
-wait for Drive's quota to reset, or make a permitted copy in your own Drive
-account and share that file. See [Google's download guidance](https://support.google.com/drive/answer/2423534?hl=en).
+Set the Actions secret `GOOGLE_DRIVE_DOWNLOAD_CREDENTIALS_JSON` to an offline
+authorized-user JSON (`client_id`, `client_secret`, `refresh_token`) with
+`drive.readonly` access. Generate it after publishing the OAuth app to
+**In production**. This separate read-only identity does not change the upload
+account. If absent, the downloader can use the existing
+`GOOGLE_OAUTH_CREDENTIALS_JSON` / `GOOGLE_OAUTH_REFRESH_TOKEN`, or service-account
+credentials (install `google-auth` for service-account downloads).
+
+The authenticated path supports resource keys and shared drives, refreshes
+expired access tokens, retries temporary rate limits with backoff, resumes
+interrupted streams with HTTP Range, and verifies size and Drive MD5 before
+publishing the ROM. Credentials are never sent to non-Google download hosts.
+The configured account must be allowed to read the source file. Builders with
+access to this workflow can request files visible to that account; use a
+dedicated download account when accepting untrusted builders.
+
+This avoids relying on the anonymous web download endpoint; it does not remove
+Google's API or file download quotas. A genuine API quota/permission error stops
+the download, and HTML error pages are never saved as ROM ZIPs. Use an accessible
+mirror or wait for quota recovery in that case.
+See [Google's download API](https://developers.google.com/workspace/drive/api/guides/manage-downloads).
 
 For the toolbuild GitHub mirror, pass the direct download URL of its
 `*.zip.download.json` asset. The porter streams the release parts in manifest

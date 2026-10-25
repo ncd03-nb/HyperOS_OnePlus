@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Public Drive file downloader. Confirmation pages are handled; quotas are not bypassed.
+# Authenticated Drive API downloader, with public confirmation flow if no OAuth is configured.
 
 import http.cookiejar
 from html.parser import HTMLParser
@@ -106,6 +106,10 @@ def _response(opener, file_id, resource_key):
 
 def download(reference, out, log=print):
     file_id, resource_key = parse_reference(reference)
+    import gdrive_api
+    info = gdrive_api.credentials()
+    if info:
+        return gdrive_api.download(file_id, resource_key, out, info, log)
     resp, prefix = _response(_opener(), file_id, resource_key)
     output = Path(out)
     temporary = output.with_name(output.name + '.part')
