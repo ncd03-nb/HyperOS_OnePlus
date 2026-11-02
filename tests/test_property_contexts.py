@@ -54,6 +54,59 @@ class PropertyContextTests(unittest.TestCase):
             self.assertEqual(port.validate_property_contexts(self.root, Path('final.policy')),
                              {'files': 2, 'labels': 3})
 
+    def test_mtk_bluetooth_prefix_keeps_stock_vendor_route_and_other_donor_rules(self):
+        donor = self.root / 'system_ext/etc/selinux/system_ext_property_contexts'
+        collision = 'persist.vendor.bluetooth. u:object_r:system_mtk_bluetooth_prop:s0\n'
+        retained = ('# donor private rules\n'
+                    'vendor.bluetooth. u:object_r:system_mtk_bluetooth_prop:s0\n'
+                    'persist.vendor.bluetooth.asha_power_control u:object_r:bluetooth_config_prop:s0 exact bool\n')
+        port.write(donor, collision + retained)
+        port.write(self.contexts, 'persist.vendor.bluetooth. u:object_r:vendor_bluetooth_prop:s0 prefix\n')
+        stock_before = self.contexts.read_bytes()
+        with self.assertRaisesRegex(ValueError, 'Duplicate.*|prefix persist.vendor.bluetooth.'):
+            port.validate_property_context_collisions(self.root)
+        report = port.reconcile_vendor_property_contexts(self.root)
+        self.assertEqual(len(report), 1)
+        self.assertEqual(report[0]['property'], 'persist.vendor.bluetooth.')
+        self.assertEqual(report[0]['retained_context'], 'u:object_r:vendor_bluetooth_prop:s0')
+        self.assertEqual(donor.read_text(), retained)
+        self.assertEqual(self.contexts.read_bytes(), stock_before)
+        port.validate_property_context_collisions(self.root)
+        self.assertEqual(port.reconcile_vendor_property_contexts(self.root), [])
+
+    def test_same_property_exact_and_prefix_matches_are_distinct(self):
+        donor = self.root / 'product/etc/selinux/product_property_contexts'
+        port.write(donor, 'vendor.test u:object_r:system_prop:s0 exact bool\n')
+        port.write(self.contexts, 'vendor.test u:object_r:vendor_prop:s0 prefix\n')
+        self.assertEqual(port.reconcile_vendor_property_contexts(self.root), [])
+        port.validate_property_context_collisions(self.root)
+
+    def test_unrelated_donor_duplicates_are_rejected_without_choosing_an_owner(self):
+        for part, stem in (('system/system', 'plat'), ('product', 'product')):
+            port.write(self.root / part / 'etc/selinux' / (stem + '_property_contexts'),
+                       'persist.sys.fixture u:object_r:system_prop:s0 exact string\n')
+        self.assertEqual(port.reconcile_vendor_property_contexts(self.root), [])
+        with self.assertRaisesRegex(ValueError, 'exact persist.sys.fixture: .*plat_property_contexts:1.*product_property_contexts:1'):
+            port.validate_property_context_collisions(self.root)
+
+    def test_duplicate_inside_stock_is_not_silently_removed(self):
+        line = 'vendor.fixture. u:object_r:vendor_prop:s0\n'
+        port.write(self.contexts, line + line)
+        before = self.contexts.read_bytes()
+        self.assertEqual(port.reconcile_vendor_property_contexts(self.root), [])
+        with self.assertRaisesRegex(ValueError, 'prefix vendor.fixture.'):
+            port.validate_property_context_collisions(self.root)
+        self.assertEqual(self.contexts.read_bytes(), before)
+
+    def test_nonvendor_collision_with_stock_fails_instead_of_rewriting_platform(self):
+        donor = self.root / 'system/system/etc/selinux/plat_property_contexts'
+        line = 'ro.fixture u:object_r:system_prop:s0 exact\n'
+        port.write(donor, line)
+        port.write(self.contexts, line)
+        self.assertEqual(port.reconcile_vendor_property_contexts(self.root), [])
+        with self.assertRaisesRegex(ValueError, 'exact ro.fixture'):
+            port.validate_property_context_collisions(self.root)
+
 
 if __name__ == '__main__':
     unittest.main()

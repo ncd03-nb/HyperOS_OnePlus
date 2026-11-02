@@ -84,6 +84,54 @@ def fixture(root, sdk=36):
 
 
 class PortFlowTests(unittest.TestCase):
+    def test_missing_compos_disables_donor_service_flag_without_altering_virt_apex(self):
+        port.set_props(self.root / 'system/system/build.prop', {'ro.build.version.sdk': '34'})
+        path = self.root / 'system_ext/etc/build.prop'
+        port.set_props(path, {'ro.config.isolated_compilation_enabled': 'true', 'ro.fixture': 'keep'})
+        virt = self.root / 'system/system/apex/com.android.virt.apex'
+        port.write(virt, 'signed donor virtualization APEX')
+        result = port.reconcile_isolated_compilation(self.root)
+        self.assertTrue(result['changed'])
+        self.assertEqual(result['files'], ['system_ext/etc/build.prop'])
+        self.assertEqual(port.properties(path)['ro.config.isolated_compilation_enabled'], 'false')
+        self.assertEqual(port.properties(path)['ro.fixture'], 'keep')
+        self.assertEqual(virt.read_text(), 'signed donor virtualization APEX')
+        self.assertFalse(port.reconcile_isolated_compilation(self.root)['changed'])
+
+    def test_present_compos_preserves_service_flag_for_supported_apex_layouts(self):
+        port.set_props(self.root / 'system/system/build.prop', {'ro.build.version.sdk': '34'})
+        path = self.root / 'system_ext/etc/build.prop'
+        port.set_props(path, {'ro.config.isolated_compilation_enabled': 'true'})
+        before = path.read_bytes()
+        for name in ('com.android.compos.apex', 'com.android.compos.capex',
+                     'com.google.android.compos_compressed.apex', 'com.android.compos'):
+            with self.subTest(name=name):
+                apex = self.root / 'system/system/apex' / name
+                if name == 'com.android.compos':
+                    apex.mkdir()
+                else:
+                    port.write(apex, 'signed CompOS APEX')
+                self.assertFalse(port.reconcile_isolated_compilation(self.root)['changed'])
+                self.assertEqual(path.read_bytes(), before)
+                if apex.is_dir():
+                    apex.rmdir()
+                else:
+                    apex.unlink()
+
+    def test_missing_compos_does_not_add_a_flag_to_donors_without_it(self):
+        port.set_props(self.root / 'system/system/build.prop', {'ro.build.version.sdk': '34'})
+        path = self.root / 'system_ext/etc/build.prop'
+        before = path.read_bytes()
+        self.assertFalse(port.reconcile_isolated_compilation(self.root)['changed'])
+        self.assertEqual(path.read_bytes(), before)
+
+    def test_compos_guard_does_not_change_newer_android_module_layouts(self):
+        path = self.root / 'system_ext/etc/build.prop'
+        port.set_props(path, {'ro.config.isolated_compilation_enabled': 'true'})
+        before = path.read_bytes()
+        self.assertFalse(port.reconcile_isolated_compilation(self.root)['changed'])
+        self.assertEqual(path.read_bytes(), before)
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)

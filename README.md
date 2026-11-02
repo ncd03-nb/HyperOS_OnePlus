@@ -283,6 +283,13 @@ unresolved policy references still fail compilation. Cache hashes follow the
 actual inputs, and stale source/cache stamp pairs for an absent optional policy
 are removed together. SDK34/35 still require zero compiled permissive domains
 and valid property labels before packaging.
+The compiler also rejects duplicate property-info matches across the runtime
+context files. When a donor repeats a vendor/odm-owned key with the same match
+kind, the stock hardware route is retained and only that donor entry is removed.
+This fixes rembrandt's `persist.vendor.bluetooth.` collision between MediaTek
+system_ext and the Ace 3V Qualcomm vendor. More-specific properties and distinct
+exact/prefix matches are preserved; unrelated collisions fail with both source
+locations. Removed entries are recorded in `donor_property_collisions_removed`.
 The signed donor APEX and its libraries are preserved. The installer accepts
 compressed, uncompressed and flattened adbd APEX layouts. Known profiles are
 an optional cache; other regions derive their daemon from the donor itself.

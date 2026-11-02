@@ -979,8 +979,70 @@ def reconcile_fingerprint_property_contexts(root):
     return removed
 
 
+PROPERTY_CONTEXT_PARTITIONS = (('system/system', 'plat'), ('system_ext', 'system_ext'),
+                               ('product', 'product'), ('vendor', 'vendor'), ('odm', 'odm'))
+
+
+def property_context_entries(root):
+    """Read the context files combined into init's one property-info trie."""
+    entries = []
+    for part, stem in PROPERTY_CONTEXT_PARTITIONS:
+        path = root / part / 'etc/selinux' / (stem + '_property_contexts')
+        if not path.is_file():
+            continue
+        for number, line in enumerate(path.read_text('utf-8').splitlines(), 1):
+            fields = line.split()
+            if len(fields) < 2 or fields[0].startswith('#'):
+                continue
+            # Legacy two-column entries are prefixes, as in Android's parser.
+            kind = fields[2] if len(fields) > 2 and fields[2] in ('exact', 'prefix') else 'prefix'
+            entries.append({'path': path, 'line': number, 'part': part,
+                            'key': (fields[0], kind), 'context': fields[1]})
+    return entries
+
+
+def reconcile_vendor_property_contexts(root):
+    """Keep stock hardware routes when a donor repeats a vendor-owned key."""
+    entries = property_context_entries(root)
+    hardware = {entry['key']: entry for entry in entries if entry['part'] in ('vendor', 'odm')}
+    removed, lines = [], {}
+    namespaces = ('vendor.', 'persist.vendor.', 'ro.vendor.', 'odm.', 'persist.odm.', 'ro.odm.')
+    for entry in entries:
+        key = entry['key']
+        if (entry['part'] in ('vendor', 'odm') or key not in hardware
+                or not key[0].startswith(namespaces)):
+            continue
+        path = entry['path']
+        lines.setdefault(path, set()).add(entry['line'])
+        stock = hardware[key]
+        removed.append({'file': path.relative_to(root).as_posix(), 'line': entry['line'],
+                        'property': key[0], 'match': key[1], 'donor_context': entry['context'],
+                        'retained_file': stock['path'].relative_to(root).as_posix(),
+                        'retained_context': stock['context']})
+    for path, numbers in lines.items():
+        # Do not touch vendor/odm or any noncolliding donor lines/metadata.
+        original = path.read_bytes().splitlines(keepends=True)
+        path.write_bytes(b''.join(line for number, line in enumerate(original, 1) if number not in numbers))
+    return removed
+
+
+def validate_property_context_collisions(root):
+    seen, errors = {}, []
+    for entry in property_context_entries(root):
+        key = entry['key']
+        source = f"{entry['path'].relative_to(root)}:{entry['line']}"
+        if key in seen:
+            errors.append(f'{key[1]} {key[0]}: {seen[key]} and {source}')
+        else:
+            seen[key] = source
+    if errors:
+        raise ValueError('Duplicate property-context matches; init cannot serialize property info:\n'
+                         + '\n'.join(errors))
+
+
 def validate_property_contexts(root, policy):
     """Reject undefined property labels before packaging a boot image."""
+    validate_property_context_collisions(root)
     files = [path for part in PARTS for path in (root / part).rglob('*property_contexts')
              if path.is_file()]
     if not files:
@@ -1005,6 +1067,28 @@ def validate_property_contexts(root, policy):
         raise ValueError('Property contexts have invalid SELinux labels; init cannot '
                          'initialize property areas:\n' + '\n'.join(errors))
     return {'files': len(files), 'labels': len(labels)}
+
+
+def reconcile_isolated_compilation(root):
+    """Do not start a CompOS service whose APEX is absent from a modified donor."""
+    if sdk(root) != 34:
+        return {'changed': False, 'reason': 'Only the SDK34 service layout is verified', 'files': []}
+    for part in ('system/system', 'system_ext', 'product'):
+        base = root / part / 'apex'
+        for package in ('com.android.compos', 'com.google.android.compos'):
+            for suffix in ('', '.apex', '.capex', '_compressed.apex'):
+                if (base / (package + suffix)).exists():
+                    return {'changed': False, 'reason': 'CompOS APEX is present', 'files': []}
+    changed = []
+    key = 'ro.config.isolated_compilation_enabled'
+    paths = (*DONOR_PROP_PATHS, 'system/system/etc/prop.default',
+             'vendor/build.prop', 'vendor/etc/build.prop', 'odm/build.prop', 'odm/etc/build.prop')
+    for rel in paths:
+        path = root / rel
+        if properties(path).get(key, '').lower() in ('1', 'true', 'y', 'yes', 'on'):
+            set_props(path, {key: 'false'})
+            changed.append(rel)
+    return {'changed': bool(changed), 'reason': 'CompOS APEX is absent', 'files': changed}
 
 
 def compile_policy(root, compiler='secilc', enforcing=False):
@@ -1036,6 +1120,8 @@ def compile_policy(root, compiler='secilc', enforcing=False):
         write(policy, text.rstrip() + '\n; Ace 3V development port: permissive\n' +
               ''.join(f'(typepermissive {name})\n' for name in sorted(types - existing)))
     removed_property_overrides = reconcile_fingerprint_property_contexts(root)
+    removed_donor_contexts = reconcile_vendor_property_contexts(root)
+    validate_property_context_collisions(root)
     output = root / 'odm/etc/selinux/precompiled_sepolicy'
     subprocess.run([compiler, '-m', '-M', 'true', '-G', '-N', '-c', '30',
                     '-o', str(output), '-f', os.devnull, *map(str, inputs)], check=True)
@@ -1084,6 +1170,7 @@ def compile_policy(root, compiler='secilc', enforcing=False):
             'policy_digests': digests,
             'policy_inputs': [path.relative_to(root).as_posix() for path in inputs],
             'fingerprint_property_overrides_removed': removed_property_overrides,
+            'donor_property_collisions_removed': removed_donor_contexts,
             'property_contexts': property_audit,
             'sha256': hashlib.sha256(output.read_bytes()).hexdigest()}
 
@@ -1149,6 +1236,8 @@ def finish(root, device, stock, assets, adb=False, compiler='secilc'):
             report['permission_roles'] = install_a15_permission_role_overlay(
                 root, assets.parent / 'devices/OnePlusAce3V/android-35/permission_roles')
         report['apex'] = replace_apex(root, stock)
+        if ace14:
+            report['isolated_compilation'] = reconcile_isolated_compilation(root)
         profile = assets.parent / f'devices/OnePlusAce3V/android-{sdk(root)}'
         name = donor_name(root)
         feature = root / 'product/etc/device_features' / (name + '.xml')

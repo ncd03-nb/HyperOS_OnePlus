@@ -102,6 +102,38 @@ Ace 3V Android 14 stock vendor/odm. The corrected policy compiled with
 zero permissive domains, and all 528 property-context labels passed validation.
 These are offline compiler checks, not a boot test of this rembrandt donor.
 
+The resulting rembrandt port subsequently rebooted into bootloader at the
+OnePlus logo, before ADB. A temporary init logger captured
+`Unable to serialize property contexts: Duplicate prefix match detected for
+'persist.vendor.bluetooth.'`, followed by `Failed to initialize property area`
+and `InitFatalReboot: signal 6`. Both donor system_ext and stock vendor supplied
+that prefix, using `system_mtk_bluetooth_prop` and `vendor_bluetooth_prop`
+respectively. The compiler now removes only the donor's colliding vendor-owned
+entry, retains the stock hardware context byte for byte and checks all combined
+property-info matches. Overlapping but distinct prefixes and exact matches remain;
+other duplicate matches fail the build. Checking whether label types exist alone
+does not catch this serializer failure. Existing file modes and SELinux labels
+are preserved, and the fix adds no permissive domains or extra allow rules.
+Temporary init wrappers/logging libraries used for diagnosis are not part of
+the fix or repository payloads.
+
+After that correction, rembrandt reached bootanimation with Enforcing SELinux
+and a no-auth ADB shell running as UID2000. SystemServer then repeatedly failed
+to load `com.android.server.compos.IsolatedCompilationService`. The donor enables
+`ro.config.isolated_compilation_enabled` but omits the CompOS APEX; its remaining
+`com.android.virt.apex` contains `framework-virtualization.jar`, not the missing
+service. The SDK34 finishing pass now disables that flag only when the CompOS
+APEX is absent. Donors shipping CompOS retain their flag, and newer Android
+layouts are unchanged. No APEX or framework class is replaced for this fix.
+
+With both corrections applied to system_ext, the rembrandt DSU completed boot
+in about 80 seconds, stopped bootanimation and retained no-auth ADB with shell
+UID2000 and SELinux Enforcing. It stayed booted beyond the four-minute watchdog
+interval and was used for a subsequent Control Center check. The final system
+image retained its original init; temporary diagnostic wrappers and logging
+libraries were removed before that boot. This observation confirms the two boot
+fixes on the tested device, not complete camera, radio or app compatibility.
+
 A later HyperOS 2 SDK34 donor failed before RC service startup. An init log
 captured `Failed to initialize property area` followed by InitFatalReboot
 and fastboot. Four shared FOD property overrides referenced

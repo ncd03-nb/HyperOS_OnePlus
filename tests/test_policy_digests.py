@@ -156,6 +156,18 @@ class PolicyDigestTests(unittest.TestCase):
                 port.compile_policy(self.root, enforcing=True)
         self.assertEqual(stamp.read_bytes(), before)
 
+    def test_unresolved_property_collision_fails_before_compiling_or_refreshing_stamps(self):
+        for part, stem in (('system/system', 'plat'), ('product', 'product')):
+            port.write(self.root / part / 'etc/selinux' / (stem + '_property_contexts'),
+                       'ro.fixture u:object_r:plat_fixture:s0 exact\n')
+        stamp = self.root / 'system_ext/etc/selinux/system_ext_sepolicy_and_mapping.sha256'
+        before = stamp.read_bytes()
+        with patch.object(port.subprocess, 'run') as run:
+            with self.assertRaisesRegex(ValueError, 'Duplicate property-context matches'):
+                port.compile_policy(self.root, enforcing=True)
+        run.assert_not_called()
+        self.assertEqual(stamp.read_bytes(), before)
+
 
 if __name__ == '__main__':
     unittest.main()
