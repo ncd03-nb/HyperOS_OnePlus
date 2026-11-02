@@ -88,6 +88,20 @@ the enforcing-policy audit succeed; this preserves the fallback CIL and avoids
 unnecessary on-device compilation. This cache correction alone does not establish
 that a donor's early reboot is fixed.
 
+The rembrandt HyperOS 2 Android 14 toolbuild donor
+`OS2.0.25.0.UMMCNXM` omits `product/etc/selinux` entirely. The former compiler
+stopped at `Donor lacks vendor mapping .../product/etc/selinux/mapping/34.0.cil`.
+The compiler now follows [Android init's split-policy input selection](https://android.googlesource.com/platform/system/core/+/refs/heads/android15-release/init/selinux.cpp):
+platform policy and its vendor-version mapping remain mandatory; extension
+and product policies/mappings are optional. Only files actually shipped are
+compiled, without fabricated mappings. Cache stamps cover the actual inputs,
+including compatibility CIL. An absent optional policy has no source or
+precompiled-cache stamp; stale copies and their metadata are removed together.
+The failure was reproduced with this donor and the supplied October 2024
+Ace 3V Android 14 stock vendor/odm. The corrected policy compiled with
+zero permissive domains, and all 528 property-context labels passed validation.
+These are offline compiler checks, not a boot test of this rembrandt donor.
+
 A later HyperOS 2 SDK34 donor failed before RC service startup. An init log
 captured `Failed to initialize property area` followed by InitFatalReboot
 and fastboot. Four shared FOD property overrides referenced

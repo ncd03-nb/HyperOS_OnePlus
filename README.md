@@ -274,6 +274,15 @@ Ace 3V SDK34-36 share one no-auth boot ADB installer in `lib/port_compat.py`,
 used by both `port.sh` and Actions. It keeps `ro.secure=1`, `ro.debuggable=0`
 and shell UID2000, even with the legacy `--force-adb` flag. SDK34/35 retain
 SELinux Enforcing; the existing SDK36 policy selection is unchanged.
+The compatibility compiler follows Android init's split-policy inputs: platform
+policy and the vendor-version platform mapping are required, while private
+`system_ext`/`product` policies and their mappings are included only when shipped
+by the donor. For example, the rembrandt HyperOS 2 Android 14 toolbuild donor
+omits `product/etc/selinux` entirely. No empty or unrelated mapping is substituted;
+unresolved policy references still fail compilation. Cache hashes follow the
+actual inputs, and stale source/cache stamp pairs for an absent optional policy
+are removed together. SDK34/35 still require zero compiled permissive domains
+and valid property labels before packaging.
 The signed donor APEX and its libraries are preserved. The installer accepts
 compressed, uncompressed and flattened adbd APEX layouts. Known profiles are
 an optional cache; other regions derive their daemon from the donor itself.

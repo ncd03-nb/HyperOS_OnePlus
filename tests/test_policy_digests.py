@@ -72,6 +72,90 @@ class PolicyDigestTests(unittest.TestCase):
                 port.compile_policy(self.root, enforcing=True)
         self.assertEqual(stamp.read_bytes(), before)
 
+    def test_private_product_policy_without_vendor_mapping_is_compiled_and_stamped(self):
+        mapping = self.root / 'product/etc/selinux/mapping/34.0.cil'
+        mapping.unlink()
+        with patch.object(port.subprocess, 'run', side_effect=self.compiler) as run:
+            report = port.compile_policy(self.root, enforcing=True)
+        args = run.call_args_list[0].args[0]
+        cil = self.root / 'product/etc/selinux/product_sepolicy.cil'
+        self.assertIn(str(cil), args)
+        self.assertNotIn(str(mapping), args)
+        self.assertFalse(mapping.exists())
+        expected = hashlib.sha256(cil.read_bytes()).hexdigest()
+        self.assertEqual(report['policy_digests']['product'], expected)
+        self.assertIn('product/etc/selinux/product_sepolicy.cil', report['policy_inputs'])
+        self.assertEqual(report['permissive_types'], 0)
+        for part in ('vendor', 'odm'):
+            stamp = self.root / part / 'etc/selinux/precompiled_sepolicy.product_sepolicy_and_mapping.sha256'
+            self.assertEqual(stamp.read_text(), expected + '\n')
+
+    def test_optional_mappings_are_not_replaced_with_another_api_version(self):
+        for part in ('system_ext', 'product'):
+            mapping = self.root / part / 'etc/selinux/mapping/34.0.cil'
+            mapping.unlink()
+            port.write(mapping.with_name('35.0.cil'), '(type wrong_version)\n')
+        with patch.object(port.subprocess, 'run', side_effect=self.compiler) as run:
+            report = port.compile_policy(self.root, enforcing=True)
+        self.assertFalse(any('35.0.cil' in p for p in run.call_args_list[0].args[0]))
+        self.assertFalse(any('35.0.cil' in p for p in report['policy_inputs']))
+        for part in ('system_ext', 'product'):
+            self.assertFalse((self.root / part / 'etc/selinux/mapping/34.0.cil').exists())
+
+    def test_absent_optional_policy_removes_stale_stamp_pairs_and_metadata(self):
+        for part in ('system_ext', 'product'):
+            base = self.root / part / 'etc/selinux'
+            (base / (part + '_sepolicy.cil')).unlink()
+            (base / 'mapping/34.0.cil').unlink()
+            for target in ('vendor', 'odm'):
+                meta = port.Metadata(self.root, target)
+                for kind in ('precompiled_sepolicy', 'precompiled_sepolicy_debug'):
+                    rel = f'etc/selinux/{kind}.{part}_sepolicy_and_mapping.sha256'
+                    port.write(self.root / target / rel, 'stale\n')
+                    meta.pin(rel)
+                meta.save()
+        with patch.object(port.subprocess, 'run', side_effect=self.compiler):
+            report = port.compile_policy(self.root, enforcing=True)
+        self.assertEqual(set(report['policy_digests']), {'plat'})
+        for part in ('system_ext', 'product'):
+            self.assertFalse((self.root / part / 'etc/selinux' /
+                              (part + '_sepolicy_and_mapping.sha256')).exists())
+            for target in ('vendor', 'odm'):
+                meta = port.Metadata(self.root, target)
+                for kind in ('precompiled_sepolicy', 'precompiled_sepolicy_debug'):
+                    rel = f'etc/selinux/{kind}.{part}_sepolicy_and_mapping.sha256'
+                    self.assertFalse((self.root / target / rel).exists())
+                    self.assertNotIn(target + '/' + rel, meta.fs)
+                    self.assertNotIn(target + '/' + rel, meta.ctx)
+
+    def test_platform_mapping_is_still_mandatory_before_mutating_policy(self):
+        (self.root / 'system/system/etc/selinux/mapping/34.0.cil').unlink()
+        policy = self.root / 'vendor/etc/selinux/vendor_sepolicy.cil'
+        before = policy.read_bytes()
+        with patch.object(port.subprocess, 'run') as run:
+            with self.assertRaisesRegex(ValueError, 'Donor lacks vendor mapping .*system.*34.0.cil'):
+                port.compile_policy(self.root, enforcing=True)
+        run.assert_not_called()
+        self.assertEqual(policy.read_bytes(), before)
+
+    def test_compat_input_is_included_in_digest_for_the_compiled_policy(self):
+        compat = self.root / 'system_ext/etc/selinux/mapping/34.0.compat.cil'
+        port.write(compat, '; compatibility declarations\n')
+        with patch.object(port.subprocess, 'run', side_effect=self.compiler):
+            report = port.compile_policy(self.root, enforcing=True)
+        expected = hashlib.sha256(b''.join(path.read_bytes() for path in
+            port.split_policy_inputs(self.root, '34.0')['system_ext'])).hexdigest()
+        self.assertEqual(report['policy_digests']['system_ext'], expected)
+
+    def test_unresolved_policy_with_missing_optional_mapping_still_fails_compilation(self):
+        (self.root / 'product/etc/selinux/mapping/34.0.cil').unlink()
+        stamp = self.root / 'product/etc/selinux/product_sepolicy_and_mapping.sha256'
+        before = stamp.read_bytes()
+        with patch.object(port.subprocess, 'run', side_effect=subprocess.CalledProcessError(1, 'secilc')):
+            with self.assertRaises(subprocess.CalledProcessError):
+                port.compile_policy(self.root, enforcing=True)
+        self.assertEqual(stamp.read_bytes(), before)
+
 
 if __name__ == '__main__':
     unittest.main()

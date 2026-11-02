@@ -899,18 +899,49 @@ def clean_crypto(root):
     return removed
 
 
+POLICY_PARTITIONS = (('system/system', 'plat'), ('system_ext', 'system_ext'), ('product', 'product'))
+
+
+def split_policy_inputs(root, version):
+    """Match init's mandatory platform and optional extension policy inputs."""
+    groups = {}
+    for part, stem in POLICY_PARTITIONS:
+        base = root / part / 'etc/selinux'
+        policy = base / (stem + '_sepolicy.cil')
+        mapping = base / 'mapping' / (version + '.cil')
+        if stem == 'plat':
+            if not policy.is_file():
+                raise ValueError(f'Donor lacks platform policy {policy}')
+            if not mapping.is_file():
+                raise ValueError(f'Donor lacks vendor mapping {mapping}')
+        # Unlike the platform mapping, system_ext/product mappings may be
+        # absent even when their private policy exists. Let secilc reject any
+        # genuinely unresolved vendor references; never invent a mapping.
+        candidates = (policy, mapping, base / 'mapping' / (version + '.compat.cil'))
+        groups[stem] = [path for path in candidates if path.is_file()]
+    return groups
+
+
 def refresh_policy_digests(root, version):
     """Stamp the CIL used for the new cache, including invalidated donor hashes."""
     digests = {}
-    for part, stem in (('system/system', 'plat'), ('system_ext', 'system_ext'), ('product', 'product')):
+    groups = split_policy_inputs(root, version)
+    for part, stem in POLICY_PARTITIONS:
         base = root / part / 'etc/selinux'
-        digest = hashlib.sha256((base / (stem + '_sepolicy.cil')).read_bytes() +
-                                (base / 'mapping' / (version + '.cil')).read_bytes()).hexdigest()
         name = stem + '_sepolicy_and_mapping.sha256'
-        write(base / name, digest + '\n')
         partition = part.split('/')[0]
         rel = ('system/' if partition == 'system' else '') + 'etc/selinux/' + name
         meta = Metadata(root, partition)
+        if not groups[stem]:
+            # Init requires either a matching pair of stamps or no stamps on
+            # either side. Drop stale stamps for an absent optional partition.
+            (base / name).unlink(missing_ok=True)
+            meta.fs.pop(partition + '/' + rel, None)
+            meta.ctx.pop(partition + '/' + rel, None)
+            meta.save()
+            continue
+        digest = hashlib.sha256(b''.join(path.read_bytes() for path in groups[stem])).hexdigest()
+        write(base / name, digest + '\n')
         if partition + '/' + rel not in meta.fs:
             meta.pin(rel)
         meta.save()
@@ -981,17 +1012,8 @@ def compile_policy(root, compiler='secilc', enforcing=False):
     version = (vendor / 'plat_sepolicy_vers.txt').read_text('utf-8').strip()
     if not re.fullmatch(r'\d+\.\d+', version):
         raise ValueError('Invalid vendor SELinux mapping version')
-    inputs = []
-    for part, stem in (('system/system', 'plat'), ('system_ext', 'system_ext'), ('product', 'product')):
-        base = root / part / 'etc/selinux'
-        inputs.append(base / (stem + '_sepolicy.cil'))
-        mapping = base / 'mapping' / (version + '.cil')
-        if not mapping.exists():
-            raise ValueError(f'Donor lacks vendor mapping {mapping}')
-        inputs.append(mapping)
-        compat = base / 'mapping' / (version + '.compat.cil')
-        if compat.exists():
-            inputs.append(compat)
+    groups = split_policy_inputs(root, version)
+    inputs = [path for paths in groups.values() for path in paths]
     inputs += [vendor / 'plat_pub_versioned.cil', vendor / 'vendor_sepolicy.cil']
     odm_cil = root / 'odm/etc/selinux/odm_sepolicy.cil'
     if odm_cil.exists():
@@ -1042,12 +1064,17 @@ def compile_policy(root, compiler='secilc', enforcing=False):
                          'vendor_configs_file' if name.endswith('_debug') else 'sepolicy_file')
             if name.endswith('_debug'):
                 meta.ctx[part + '/etc/selinux/' + name] = ['u:object_r:vendor_configs_file:s0']
-            for source_part, stem in (('system/system', 'plat'), ('system_ext', 'system_ext'), ('product', 'product')):
+            for source_part, stem in POLICY_PARTITIONS:
                 source = root / source_part / 'etc/selinux' / (stem + '_sepolicy_and_mapping.sha256')
+                rel = 'etc/selinux/' + name + '.' + source.name
+                if stem not in digests:
+                    (base / (name + '.' + source.name)).unlink(missing_ok=True)
+                    meta.fs.pop(part + '/' + rel, None)
+                    meta.ctx.pop(part + '/' + rel, None)
+                    continue
                 if not source.exists():
                     raise ValueError(f'Missing donor policy digest: {source}')
                 shutil.copy2(source, base / (name + '.' + source.name))
-                rel = 'etc/selinux/' + name + '.' + source.name
                 if part + '/' + rel not in meta.fs:
                     meta.pin(rel, 'vendor_configs_file')
         meta.save()
@@ -1055,6 +1082,7 @@ def compile_policy(root, compiler='secilc', enforcing=False):
             'enforcing': enforcing, 'permissive_types': 0 if enforcing else len(types),
             'neverallow_build_checks': False,
             'policy_digests': digests,
+            'policy_inputs': [path.relative_to(root).as_posix() for path in inputs],
             'fingerprint_property_overrides_removed': removed_property_overrides,
             'property_contexts': property_audit,
             'sha256': hashlib.sha256(output.read_bytes()).hexdigest()}
