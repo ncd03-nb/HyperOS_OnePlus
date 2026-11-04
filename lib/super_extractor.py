@@ -181,7 +181,7 @@ def read_metadata(reader):
     raise ValueError('; '.join(errors))
 
 
-def extract(path, output, parts):
+def extract(path, output, parts, optional=()):
     output = Path(output)
     output.mkdir(parents=True, exist_ok=True)
     reader = ImageReader(path)
@@ -194,6 +194,8 @@ def extract(path, output, parts):
             name = next((name for name in (part, part + '_a', part + '_b')
                          if name in metadata and metadata[name]['size'] and not metadata[name]['disabled']), None)
             if name is None:
+                if part in optional:
+                    continue
                 raise ValueError(f'{part}: no populated partition in super image')
             if any(kind == 0 and source != 0 for _, kind, _, source in metadata[name]['extents']):
                 raise ValueError('Multi-device/retrofit super images need their other physical images')

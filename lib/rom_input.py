@@ -35,10 +35,13 @@ def copy_stream(source, target):
     temporary.rename(target)
 
 
-def prepare(source, output, parts, payload_tool=None):
+def prepare(source, output, parts, payload_tool=None, optional=()):
     source, output = Path(source), Path(output)
     if not parts or any(not re.fullmatch(r'[A-Za-z0-9_]+', part) for part in parts):
         raise ValueError('Invalid requested partitions')
+    if not set(optional) <= set(parts):
+        raise ValueError('Optional partitions must be requested')
+    required = set(parts) - set(optional)
     output.mkdir(parents=True, exist_ok=True)
     report = {'source_type': None, 'partitions': {}}
     payload = None
@@ -51,8 +54,9 @@ def prepare(source, output, parts, payload_tool=None):
                 with image.open('rb') as stream:
                     copy_stream(stream, output / (part + '.img'))
                 report['partitions'][part] = {'source': str(image)}
-        if len(report['partitions']) != len(parts):
-            super_image = choose([path for path in entries if path.name == 'super.img'], 'super.img')
+        supers = [path for path in entries if path.name == 'super.img']
+        if required - report['partitions'].keys() or (supers and len(report['partitions']) != len(parts)):
+            super_image = choose(supers, 'super.img')
         report['source_type'] = 'image_directory'
     elif zipfile.is_zipfile(source):
         with zipfile.ZipFile(source) as bundle:
@@ -71,8 +75,9 @@ def prepare(source, output, parts, payload_tool=None):
                         with bundle.open(image) as stream:
                             copy_stream(stream, output / (part + '.img'))
                         report['partitions'][part] = {'zip_member': image.filename}
-                if len(report['partitions']) != len(parts):
-                    image = choose([item for item in entries if PurePosixPath(item.filename).name == 'super.img'], 'super.img')
+                supers = [item for item in entries if PurePosixPath(item.filename).name == 'super.img']
+                if required - report['partitions'].keys() or (supers and len(report['partitions']) != len(parts)):
+                    image = choose(supers, 'super.img')
                     super_image = output / '.input_super.img'
                     with bundle.open(image) as stream:
                         copy_stream(stream, super_image)
@@ -88,14 +93,23 @@ def prepare(source, output, parts, payload_tool=None):
             super_image = source
             report['source_type'] = 'super'
     if payload:
-        command = ([payload_tool, str(payload), '-o', str(output), '-i', ','.join(parts)] if payload_tool else
-                   [sys.executable, str(Path(__file__).with_name('payload_extractor.py')), '-o', str(output), '-p', ','.join(parts), str(payload)])
+        selected = parts
+        if optional:
+            from payload_extractor import list_partitions
+            available = set(list_partitions(payload))
+            if required - available:
+                raise ValueError('Required partitions not in payload: ' + ', '.join(sorted(required - available)))
+            selected = [part for part in parts if part in available]
+        command = ([payload_tool, str(payload), '-o', str(output), '-i', ','.join(selected)] if payload_tool else
+                   [sys.executable, str(Path(__file__).with_name('payload_extractor.py')), '-o', str(output), '-p', ','.join(selected), str(payload)])
         subprocess.run(command, check=True)
-        report['partitions'] = {part: {'payload': True} for part in parts}
+        report['partitions'] = {part: {'payload': True} for part in selected}
     if super_image:
         missing = [part for part in parts if part not in report['partitions']]
-        report['partitions'].update(extract_super(super_image, output, missing))
+        report['partitions'].update(extract_super(super_image, output, missing, optional=optional))
     for part in parts:
+        if part in optional and part not in report['partitions']:
+            continue
         if not (output / (part + '.img')).is_file() or not (output / (part + '.img')).stat().st_size:
             raise ValueError(f'{part}.img was not produced')
     for temporary in (payload, super_image):
@@ -111,9 +125,11 @@ def main():
     parser.add_argument('-o', '--output', required=True)
     parser.add_argument('-p', '--parts', required=True)
     parser.add_argument('--payload-tool')
+    parser.add_argument('--optional-parts', default='')
     args = parser.parse_args()
     try:
-        prepare(args.source, args.output, args.parts.split(','), args.payload_tool)
+        prepare(args.source, args.output, args.parts.split(','), args.payload_tool,
+                [p for p in args.optional_parts.split(',') if p])
     except (ValueError, OSError, zipfile.BadZipFile, subprocess.CalledProcessError) as error:
         parser.exit(1, f'ROM input error: {error}\n')
 

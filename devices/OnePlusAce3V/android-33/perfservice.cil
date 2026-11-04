@@ -1,0 +1,7 @@
+; Only the real vendor_perfservice client; no permissive domains.
+(allow vendor_perfservice hwservicemanager_prop (file (read getattr map open)))
+(allow vendor_perfservice hwservicemanager (binder (call transfer)))
+(allow hwservicemanager vendor_perfservice (binder (call transfer)))
+(allow hwservicemanager vendor_perfservice (dir (search)))
+(allow hwservicemanager vendor_perfservice (file (read map open)))
+(allow hwservicemanager vendor_perfservice (process (getattr)))

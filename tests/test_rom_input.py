@@ -61,6 +61,52 @@ def sparse_fixture(image):
 
 
 class ROMInputTests(unittest.TestCase):
+    def test_optional_mi_ext_is_filtered_before_external_payload_dumper(self):
+        source = self.root / 'payload.bin'
+        source.write_bytes(b'CrAU fixture header parsed by mock')
+        output = self.root / 'payload-out'
+        def run(command, check):
+            self.assertEqual(command[-2:], ['-i', 'system'])
+            (output / 'system.img').write_bytes(b'payload system')
+        with patch('payload_extractor.list_partitions', return_value=['system']), \
+                patch.object(rom_input.subprocess, 'run', side_effect=run):
+            report = rom_input.prepare(source, output, ['system', 'mi_ext'],
+                                       'payload-dumper', optional=['mi_ext'])
+        self.assertEqual(set(report['partitions']), {'system'})
+        with patch('payload_extractor.list_partitions', return_value=['system']), \
+                patch.object(rom_input.subprocess, 'run') as dumper:
+            with self.assertRaisesRegex(ValueError, 'Required partitions'):
+                rom_input.prepare(source, self.root / 'payload-missing', ['product', 'mi_ext'],
+                                  'payload-dumper', optional=['mi_ext'])
+            dumper.assert_not_called()
+
+    def test_miui14_raw_directory_and_zip_can_omit_only_optional_mi_ext(self):
+        source = self.root / 'raw'
+        source.mkdir()
+        (source / 'system.img').write_bytes(b'system')
+        for kind in ('directory', 'zip'):
+            selected = source
+            if kind == 'zip':
+                selected = self.root / 'rom.zip'
+                with zipfile.ZipFile(selected, 'w') as archive:
+                    archive.writestr('nested/system.img', b'system')
+            output = self.root / kind
+            report = rom_input.prepare(selected, output, ['system', 'mi_ext'], optional=['mi_ext'])
+            self.assertEqual(set(report['partitions']), {'system'})
+            self.assertFalse((output / 'mi_ext.img').exists())
+        with self.assertRaises(ValueError):
+            rom_input.prepare(source, self.root / 'missing-required', ['system', 'product'], optional=[])
+
+    def test_miui14_super_can_omit_mi_ext_without_skipping_required_parts(self):
+        path = self.root / 'super.img'
+        path.write_bytes(self.raw)
+        report = rom_input.prepare(path, self.root / 'optional', ['system', 'mi_ext'], optional=['mi_ext'])
+        self.assertEqual(set(report['partitions']), {'system'})
+        self.assertEqual((self.root / 'optional/system.img').read_bytes(), self.expected)
+        with self.assertRaisesRegex(ValueError, 'product'):
+            rom_input.prepare(path, self.root / 'required', ['system', 'product', 'mi_ext'], optional=['mi_ext'])
+        self.assertFalse((self.root / 'required/system.img').exists())
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)

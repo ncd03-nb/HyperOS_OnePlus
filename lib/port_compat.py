@@ -10,6 +10,7 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import sys
 import xml.etree.ElementTree as ET
 import zipfile
 from adbd_patch import derive_from_donor, patch_auth
@@ -625,7 +626,7 @@ def install_a15_permission_role_overlay(root, profile):
 
 def force_adb(root, assets, ace16=False):
     # Supported Ace 3V SDKs share no-auth ADB with normal shell privileges.
-    if sdk(root) in (34, 35, 36):
+    if sdk(root) in (33, 34, 35, 36):
         return install_noauth_boot_adb(root, assets)
     debug = {'ro.debuggable': '1', 'ro.secure': '0', 'ro.adb.secure': '0'}
     prop_default = root / 'system/system/etc/prop.default'
@@ -705,7 +706,7 @@ def secure_adb(root, assets, ace16=False):
     set_props(root / 'vendor/build.prop', {'persist.vendor.usb.config': 'adb'})
     forced = root / 'system/system/etc/init/hyperos_force_adb.rc'
     forced.parent.mkdir(parents=True, exist_ok=True)
-    early_adb = sdk(root) in (34, 35, 36)
+    early_adb = sdk(root) in (33, 34, 35, 36)
     shutil.copy2(assets / ('hyperos_early_adb_a15.rc' if early_adb else 'hyperos_force_adb.rc'), forced)
     if early_adb:
         remove_adb_property_resets(root)
@@ -782,7 +783,7 @@ def install_noauth_boot_adb(root, assets):
     text = rc.read_text('utf-8').replace(
         '# Authenticated shell ADB, independent of setup and sys.boot_completed.',
         '# USB ADB without host authentication; enforcing SELinux and shell UID2000.')
-    if version not in (34, 35):
+    if version not in (33, 34, 35):
         text = text.replace('    setenforce 1\n', '')
     needle = ('on property:apex.all.ready=true\n    setprop service.adb.root 0\n'
               '    setprop sys.usb.config adb\n    start adbd')
@@ -1206,6 +1207,11 @@ def install_display_config(root, profile):
 
 
 def finish(root, device, stock, assets, adb=False, compiler='secilc'):
+    if device == 'OnePlusAce3V' and sdk(root) == 33:
+        # SDK33 retains donor ART/runtime/APEX; it cannot use SDK34/35 stock
+        # system_ext replacement or the default Android17 development policy.
+        import a13_runtime_fixes
+        return a13_runtime_fixes.finish(root, assets, compiler, sys.modules[__name__], adb)
     ace14 = device == 'OnePlusAce3V' and sdk(root) == 34
     ace15 = device == 'OnePlusAce3V' and sdk(root) == 35
     ace16 = device == 'OnePlusAce3V' and sdk(root) == 36

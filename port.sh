@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# HyperOS (1-4) -> OnePlus auto-porter (multi-device; see devices/).
+# MIUI14 / HyperOS (1-4) -> OnePlus auto-porter (multi-device; see devices/).
 #   ./port.sh --stock <stock-rom> --hyperos <hyperos-rom> [--device <profile>]
 # Inputs: URL, zip (payload/raw/super), payload.bin, super.img or an unpacked directory.
 # Extracted trees require config/*_fs_config and config/*_file_contexts.
-# --apex-stock supplies matching system_ext APEX for Ace 3V SDK34/35/36.
+# SDK33 retains donor APEX; --apex-stock supplies SDK34/35/36 system_ext APEX.
 # SDK34 GMS donors also use the verified Android 14 my_bigball Google bundle.
-# SDK34/35 keep SELinux enforcing and enable no-auth boot ADB (shell UID2000).
-# SDK34-36 share donor-derived no-auth boot ADB; --force-adb never grants root on Ace 3V.
+# SDK33/34/35 keep SELinux enforcing and enable no-auth boot ADB (shell UID2000).
+# SDK33-36 share donor-derived no-auth boot ADB; --force-adb never grants root on Ace 3V.
 # --assemble-only performs assembly and policy compilation, skipping image packing.
 
 set -euo pipefail
@@ -180,6 +180,9 @@ dump_payload() {   # input outdir label parts...
     local tool; tool="$(find_dumper)"
     local args=()
     [ -z "$tool" ] || args+=(--payload-tool "$tool")
+    # MIUI14/SDK33 packages can omit mi_ext. Require it again after SDK detection
+    # for newer donors, so missing mandatory images never pass silently.
+    [[ ",$parts," != *,mi_ext,* ]] || args+=(--optional-parts mi_ext)
     log "extracting $parts from $(basename "$inp") (payload/raw/super auto-detection)" >&2
     quiet_run "$PY" "$HERE/lib/rom_input.py" "$inp" -o "$outdir" -p "$parts" "${args[@]}" >&2 || return $?
     printf '%s\n' "$outdir"
@@ -197,6 +200,10 @@ get_images() {   # resolved outdir label parts... ; sets IMG_<part> vars
         if [ -d "$imgdir/$p" ] && [ -f "$imgdir/config/${p}_fs_config" ] && [ -f "$imgdir/config/${p}_file_contexts" ]; then
             eval "IMG_$p=\"$imgdir/$p\""
         else
+            if [ "$p" = "mi_ext" ] && [ ! -f "$imgdir/$p.img" ]; then
+                IMG_mi_ext=""
+                continue
+            fi
             [ -f "$imgdir/$p.img" ] || die "$label: $p.img or extracted $p + config metadata not produced"
             eval "IMG_$p=\"$imgdir/$p.img\""
         fi
@@ -443,14 +450,28 @@ log "== unpacking remaining images =="
 unpack_erofs "$IMG_system" "$WORK"
 unpack_erofs "$IMG_system_ext" "$WORK"
 unpack_erofs "$IMG_product" "$WORK"
-unpack_erofs "$IMG_mi_ext" "$WORK"
 MIEXT="$WORK/mi_ext"
 DONOR_SDK="$("$PY" "$HERE/lib/port_compat.py" sdk "$WORK")"
+if [ -n "$IMG_mi_ext" ]; then
+    unpack_erofs "$IMG_mi_ext" "$WORK"
+elif [ "$DEVICE" = "OnePlusAce3V" ] && [ "$DONOR_SDK" = "33" ]; then
+    mkdir -p "$MIEXT"
+    printf '/ 0 0 0755\nmi_ext 0 0 0755\n' > "$WORK/config/mi_ext_fs_config"
+    printf '/ u:object_r:system_file:s0\n/mi_ext u:object_r:system_file:s0\n' > "$WORK/config/mi_ext_file_contexts"
+else
+    die "donor SDK $DONOR_SDK requires mi_ext.img or an extracted mi_ext tree"
+fi
 ACE_FULL=0
 APEX_ROOT=""
-if [ "$DEVICE" = "OnePlusAce3V" ] && [[ "$DONOR_SDK" = "34" || "$DONOR_SDK" = "35" || "$DONOR_SDK" = "36" ]]; then
+if [ "$DEVICE" = "OnePlusAce3V" ] && [[ "$DONOR_SDK" = "33" || "$DONOR_SDK" = "34" || "$DONOR_SDK" = "35" || "$DONOR_SDK" = "36" ]]; then
     ACE_FULL=1
     load_device_config "$HERE/devices/$DEVICE/android-$DONOR_SDK/device.conf"
+    command -v secilc >/dev/null || die "Ace 3V SDK33/34/35/36 requires secilc (run requirements.sh)"
+    if [ "$DONOR_SDK" != "36" ]; then
+        command -v seinfo >/dev/null || die "Android 13/14/15 requires seinfo to verify zero permissive domains (run requirements.sh)"
+    fi
+fi
+if [ "$ACE_FULL" -eq 1 ] && [ "$DONOR_SDK" != "33" ]; then
     # system_ext APEX comes from matching stock; system mainline modules stay
     # with the donor. Vendor/odm keep the requested hardware base.
     APEX_SRC="$STOCK_SRC"
@@ -499,8 +520,10 @@ log "[6] OP13 vendor props applied from fixes/vendor.build.prop (in [FIX])"
 log "[7] odm/build.prop: Xiaomi attestation block"
 apply_fix "$ODM/build.prop" "# $SIG" odm.build.prop
 
-log "[8] odm/build.prop: removing import lines"
-prop_remove_prefix "$ODM/build.prop" "import"
+if [ "$DEVICE" != "OnePlusAce3V" ] || [ "$DONOR_SDK" != "33" ]; then
+    log "[8] odm/build.prop: removing import lines"
+    prop_remove_prefix "$ODM/build.prop" "import"
+fi
 
 log "[9] removing ro.vendor.oplus.sensor.high_pwm_rgb"
 prop_remove_prefix "$VENDOR/build.prop" "ro.vendor.oplus.sensor.high_pwm_rgb"

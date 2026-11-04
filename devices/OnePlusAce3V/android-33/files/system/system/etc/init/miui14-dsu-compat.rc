@@ -1,0 +1,7 @@
+# Physical-slot verification is retained for normal boots.
+on early-init
+    setprop sys.ace3v.run_update_verifier 1
+
+# A DSU guest must not mark or verify the host's physical OTA slot.
+on early-init && property:ro.gsid.image_running=1
+    setprop sys.ace3v.run_update_verifier 0

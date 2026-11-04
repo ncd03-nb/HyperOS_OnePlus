@@ -1,0 +1,54 @@
+{
+  "date": "2026-11-04",
+  "profile": "miui14-marble-v14.0.27.0-tmrcnxm-ace3v-sdk34",
+  "validation": {
+    "linux_tests": "140 passed; Bash syntax and git diff checks passed",
+    "binary_patches_recreated_with_bsdiff4_1_4_1": 9,
+    "binary_outputs_equal_booted_case": 9,
+    "finish_policy_sha256": "095ba6a96c124453901e90a2898cce424a69074e604018c8c0ebfc98e98040c8",
+    "permissive_types": 0,
+    "all_image_label_types_defined": true,
+    "boot_adb_daemon_sha256": "a0d233aa5dc376df400bb7e2fef39be41fec479615ee4a071cdca604b82cd574",
+    "shell_uid": 2000,
+    "cli_assembly_and_metadata_sync": "passed on already-ported extracted input, no matching stock APEX required",
+    "repack_source": "finish output from the original image set; CLI assembly tested separately with --assemble-only",
+    "repacked_and_full_readback_verified": {
+      "system": {
+        "bytes": 704946176,
+        "capacity": 789610496,
+        "metadata_verified": true,
+        "verified_files": 3150,
+        "verified_symlinks": 289
+      },
+      "system_ext": {
+        "bytes": 415752192,
+        "capacity": 459182080,
+        "metadata_verified": true,
+        "verified_files": 1542,
+        "verified_symlinks": 7
+      },
+      "product": {
+        "bytes": 2738466816,
+        "capacity": 2998550528,
+        "metadata_verified": true,
+        "verified_files": 1706,
+        "verified_symlinks": 0
+      },
+      "vendor": {
+        "bytes": 1019453440,
+        "capacity": 1117569024,
+        "metadata_verified": true,
+        "verified_files": 3347,
+        "verified_symlinks": 278
+      },
+      "odm": {
+        "bytes": 1339445248,
+        "capacity": 1512767488,
+        "metadata_verified": true,
+        "verified_files": 4131,
+        "verified_symlinks": 1
+      }
+    },
+    "fresh_factory_GMS_userdata_not_tested": true
+  }
+}

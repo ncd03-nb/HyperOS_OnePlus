@@ -1,0 +1,56 @@
+{
+  "original_sha256": "971e8441968caacf30f0f812ec5ceba252a1e214241061fb88986579fa838837",
+  "patched_sha256": "aa3e001735f52099eff5b0aab30edf72128a236ced6ff727b9b940494e79a3b5",
+  "offset": 457096,
+  "old_instruction": "cmp x19,#8",
+  "new_instruction": "cmp x19,#9",
+  "reason": "AOSP Android14 Level::U=8 extends LAST_PLUS_ONE from8 to9; preserve actual GKI Android14 level8",
+  "bounds_check_retained": true,
+  "tests_actual_ARM64_function": [
+    {
+      "android_release": 0,
+      "before": 18446744073709551615,
+      "after": 18446744073709551615
+    },
+    {
+      "android_release": 11,
+      "before": 18446744073709551615,
+      "after": 18446744073709551615
+    },
+    {
+      "android_release": 12,
+      "before": 6,
+      "after": 6
+    },
+    {
+      "android_release": 13,
+      "before": 7,
+      "after": 7
+    },
+    {
+      "android_release": 14,
+      "before": "bounds_check",
+      "after": 8
+    },
+    {
+      "android_release": 15,
+      "before": "bounds_check",
+      "after": "bounds_check"
+    },
+    {
+      "android_release": 16,
+      "before": "bounds_check",
+      "after": "bounds_check"
+    },
+    {
+      "android_release": 17,
+      "before": "bounds_check",
+      "after": "bounds_check"
+    },
+    {
+      "android_release": 18446744073709551615,
+      "before": "bounds_check",
+      "after": "bounds_check"
+    }
+  ]
+}

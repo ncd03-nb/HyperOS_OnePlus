@@ -5,3 +5,7 @@
 *.conf text eol=lf
 *.prop text eol=lf
 *.jar binary
+*.bsdiff binary
+*.xz binary
+*.cil text eol=lf
+devices/OnePlusAce3V/android-33/**/*.xml text eol=lf

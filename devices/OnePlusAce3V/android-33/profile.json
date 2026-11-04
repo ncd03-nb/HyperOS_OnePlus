@@ -1,0 +1,264 @@
+{
+  "sdk": 33,
+  "vendor_mapping": "34.0",
+  "name": "miui14-marble-v14.0.27.0-tmrcnxm-ace3v-sdk34",
+  "patches": [
+    {
+      "path": "system/system/lib64/libsensorservice.so",
+      "before_sha256": "190e5eb3c6faae3533f0d460eecf1124ca0782b287d1e48e6ddbdd9c00de76da",
+      "after_sha256": "fb5e5c42ef6f740a82944e83e5fc8c663e49925337f097432ab494b8384b5e67",
+      "before_bytes": 567880,
+      "after_bytes": 567880,
+      "patch": "patches/system__system__lib64__libsensorservice.so.bsdiff",
+      "patch_sha256": "3e1496a15bd5e0d5f33716dfe84a860eaa89e6266da89b56fa0ff142d437c2c5"
+    },
+    {
+      "path": "system/system/lib64/libvintf.so",
+      "before_sha256": "971e8441968caacf30f0f812ec5ceba252a1e214241061fb88986579fa838837",
+      "after_sha256": "aa3e001735f52099eff5b0aab30edf72128a236ced6ff727b9b940494e79a3b5",
+      "before_bytes": 597952,
+      "after_bytes": 597952,
+      "patch": "patches/system__system__lib64__libvintf.so.bsdiff",
+      "patch_sha256": "f32a2c24450d05c6cb4d2c3f8001bcbf64285bfc18d8848cde357783c1d7252d"
+    },
+    {
+      "path": "system/system/lib64/libcamera_metadata.so",
+      "before_sha256": "aaaf1b20bb5d637554ac1098396bd4adeea6793186c99fe3ebfd6890d84b2daf",
+      "after_sha256": "cd89346f31e09a7ee6d6a5a534d487699a6950f9be879dae985e9785304736ba",
+      "before_bytes": 53688,
+      "after_bytes": 58008,
+      "patch": "patches/system__system__lib64__libcamera_metadata.so.bsdiff",
+      "patch_sha256": "fb10cb81d8226292c5e9489dd04523d14b0becafd0773d91031c2723a2a4e6b0"
+    },
+    {
+      "path": "system_ext/framework/miui-wifi-service.jar",
+      "before_sha256": "521e9dcdd22815c2ef219d793ac39531e2dcb6d9b471b5720d0ef3f589532994",
+      "after_sha256": "391ad7a81c0055f63cb067e1a3694a1ed95aea4398853c7e1a4b11559221396e",
+      "before_bytes": 438618,
+      "after_bytes": 438927,
+      "patch": "patches/system_ext__framework__miui-wifi-service.jar.bsdiff",
+      "patch_sha256": "baafa310fe0d05fb14f26a76de1a2d6a625c116da661f257dd64232a2237fd21"
+    },
+    {
+      "path": "system_ext/framework/miui-framework.jar",
+      "before_sha256": "af7387fa3bcb2a69b94adebe92956e2103da778113fa1eb0e2ec02367e483372",
+      "after_sha256": "145940bb13be3ce99b9fa109e0f0370318e1f41cba6a8dba52c0efdd11d76093",
+      "before_bytes": 4759180,
+      "after_bytes": 4759283,
+      "patch": "patches/system_ext__framework__miui-framework.jar.bsdiff",
+      "patch_sha256": "89bebe467cedbc922a41f86fc66f142c8d65a0691911780c08900aa9e64dac1c"
+    },
+    {
+      "path": "vendor/bin/hw/vendor.qti.hardware.display.allocator-service",
+      "before_sha256": "875db7a6b165bebc797458a7cf058dc7b2afb6d72b7af5675fe37f4e5dd6bd74",
+      "after_sha256": "ad59546bbb6a10ea971878bfaa815c0272170c25f5506e0995fa329c2461366d",
+      "before_bytes": 37664,
+      "after_bytes": 71449,
+      "patch": "patches/vendor__bin__hw__vendor.qti.hardware.display.allocator-service.bsdiff",
+      "patch_sha256": "a7b96f942277300ac9d6772ec8489fd6b3bb0a3a74c34a4d26c72a5872ed4fb8"
+    },
+    {
+      "path": "vendor/lib64/libsensorndkbridge.so",
+      "before_sha256": "0664d62ff91ca3ac096786bd87d51dae9e06b6455af3e9efc9a6274d78be31b8",
+      "after_sha256": "2451a1db0895aa21d6cd35f20ac2896504a7f3f3c14f251fc379aa168a731f4a",
+      "before_bytes": 62432,
+      "after_bytes": 78321,
+      "patch": "patches/vendor__lib64__libsensorndkbridge.so.bsdiff",
+      "patch_sha256": "24a5425ea59fa7917af0d1e450a8f9d6f76818024713ada44e9f097bdb3d30b1"
+    },
+    {
+      "path": "vendor/lib64/android.hardware.wifi.supplicant-V2-ndk.so",
+      "before_sha256": "4f60c6d8b4b60e8c4712eb1ceb328104775de5547ca6bb2247f97d5c3ecdbd97",
+      "after_sha256": "925ff4cc0e17cb552577172a36877ea3a825db062913b9451ca62c85e28c69ff",
+      "before_bytes": 659472,
+      "after_bytes": 659472,
+      "patch": "patches/vendor__lib64__android.hardware.wifi.supplicant-V2-ndk.so.bsdiff",
+      "patch_sha256": "57d4ca0712c3ab51468697bb842e26144304d45614241d61f4400fb989443e62"
+    },
+    {
+      "path": "vendor/apex/com.google.android.widevine.nonupdatable.apex",
+      "before_sha256": "a7808f84081c410a479799a87fcbd521b01a41e690f35a3049cc47a03893b902",
+      "after_sha256": "129743de31a197faee02a1b42e86aefab7c0c29ba894a07752f99d7fb55c8c2d",
+      "before_bytes": 4247552,
+      "after_bytes": 4235421,
+      "patch": "patches/vendor__apex__com.google.android.widevine.nonupdatable.apex.bsdiff",
+      "patch_sha256": "bf428504e547da9b461c604b83027b7a8d296a084f362beb2f3fcfd52db801df"
+    }
+  ],
+  "files": [
+    {
+      "path": "system/system/lib64/libace3v_binder_compat.so",
+      "asset": "payloads/libace3v_binder_compat.so",
+      "asset_sha256": "7634cd5742d191dd286a88efe73f2e4a7ff61b368a50500733c5bca56d91bdb4",
+      "sha256": "7634cd5742d191dd286a88efe73f2e4a7ff61b368a50500733c5bca56d91bdb4",
+      "bytes": 7608,
+      "compression": null
+    },
+    {
+      "path": "system/system/etc/selinux/mapping/34.0.cil",
+      "asset": "payloads/34.0.cil",
+      "asset_sha256": "53435805ca07e5b0a66bc91b8fab494bb84f6290b7d56ee1ce84057ae2897322",
+      "sha256": "53435805ca07e5b0a66bc91b8fab494bb84f6290b7d56ee1ce84057ae2897322",
+      "bytes": 209290,
+      "compression": null
+    },
+    {
+      "path": "product/apex/com.android.vndk.v34.apex",
+      "asset": "payloads/com.android.vndk.v34.apex.xz",
+      "asset_sha256": "b831c66183c5ac6ef19ce0f4d9db93987f34f75dc5feb8c7640921d1a52a98a0",
+      "sha256": "ae5ff0812a63401e8b3ba1da9671fcdd49482e35b81a0987cfac43460ae0e9ed",
+      "bytes": 43841955,
+      "compression": "xz"
+    }
+  ],
+  "binder_abi_guards": {
+    "libbinder.so": "9b8f9a9535b6c7233a24437bc3fc78c5a4ccddb5ea65ec109e604215c676972a",
+    "libutils.so": "008037f97fc105385a626f09e1ea4c901fa81a69f30210224f5a01a105a3592d",
+    "libbinder_ndk.so": "2448a94273de67e6608212ee108fdca10e43c38f7e3b2f8fc5dac4e1fe1e838e"
+  },
+  "hardware_service_labels": {
+    "android.hardware.boot.IBootControl/default": "u:object_r:hal_bootctl_service:s0",
+    "android.hardware.cas.IMediaCasService/default": "u:object_r:hal_cas_service:s0",
+    "android.hardware.gatekeeper.IGatekeeper/default": "u:object_r:hal_gatekeeper_service:s0",
+    "android.hardware.radio.sap.ISap/slot1": "u:object_r:hal_radio_service:s0",
+    "android.hardware.radio.sap.ISap/slot2": "u:object_r:hal_radio_service:s0",
+    "android.hardware.secure_element.ISecureElement/SIM1": "u:object_r:hal_secure_element_service:s0",
+    "android.hardware.secure_element.ISecureElement/SIM2": "u:object_r:hal_secure_element_service:s0",
+    "android.hardware.secure_element.ISecureElement/eSE1": "u:object_r:hal_secure_element_service:s0",
+    "android.hardware.tetheroffload.IOffload/default": "u:object_r:hal_tetheroffload_service:s0",
+    "android.hardware.thermal.IThermal/default": "u:object_r:hal_thermal_service:s0",
+    "android.hardware.wifi.IWifi/default": "u:object_r:hal_wifi_service:s0"
+  },
+  "gms": {
+    "metadata_library_original_sha256": "aaaf1b20bb5d637554ac1098396bd4adeea6793186c99fe3ebfd6890d84b2daf",
+    "metadata_library_sha256": "cd89346f31e09a7ee6d6a5a534d487699a6950f9be879dae985e9785304736ba",
+    "source": "Existing signed VNDK34 apex_payload.img/lib64/libcamera_metadata.so",
+    "old_tags_preserved": 294,
+    "new_A14_tags_verified_on_A13": 17,
+    "exported_API_set_identical": 48,
+    "GmsCore_sha256": "69e20320a38094ba89ce43c8b990ece181d5e093041096dd81bce9704ebd0fc0",
+    "google_signer_sha256": "7ce83c1b71f3d572fed04c8d40c5cb10ff75e6d87d9df6fbd53f0468c2905053",
+    "factory_modules": [
+      {
+        "apk_entry": "assets/chimera-modules/AdsDynamite.apk",
+        "name": "AdsDynamite.apk",
+        "sha256": "12138adec17a60ce3b0fded89893eb17f7d2c0f14428acc138f3e986c18c4aa6",
+        "bytes": 3749481,
+        "module_signer_sha256": "afee62fb653c9d863d1a6d6046b35225bf6380dd4657b105e8331a1de49f9f91"
+      },
+      {
+        "apk_entry": "assets/chimera-modules/CronetDynamite.apk",
+        "name": "CronetDynamite.apk",
+        "sha256": "a4820cdff273236c519de8f13d514355f38dbd929823444c3be52efde1de14f4",
+        "bytes": 8473919,
+        "module_signer_sha256": "7ce83c1b71f3d572fed04c8d40c5cb10ff75e6d87d9df6fbd53f0468c2905053"
+      },
+      {
+        "apk_entry": "assets/chimera-modules/DynamiteLoader.apk",
+        "name": "DynamiteLoader.apk",
+        "sha256": "fcf98b1bee49c9269ed0069ed5dea4d449e22a91167235b9e77e7e84e6374875",
+        "bytes": 173087,
+        "module_signer_sha256": "7ce83c1b71f3d572fed04c8d40c5cb10ff75e6d87d9df6fbd53f0468c2905053"
+      },
+      {
+        "apk_entry": "assets/chimera-modules/DynamiteModulesA.apk",
+        "name": "DynamiteModulesA.apk",
+        "sha256": "6fe9ca52d9fd8ae6359f4c545d8c68a191c7103c274ef1d67897729bae68e4a8",
+        "bytes": 814082,
+        "module_signer_sha256": "7ce83c1b71f3d572fed04c8d40c5cb10ff75e6d87d9df6fbd53f0468c2905053"
+      },
+      {
+        "apk_entry": "assets/chimera-modules/DynamiteModulesC.apk",
+        "name": "DynamiteModulesC.apk",
+        "sha256": "dda0f30fba0e3b370d7569af09609e314398f782cd58176bd38efac9ad7a9f0f",
+        "bytes": 1705511,
+        "module_signer_sha256": "7ce83c1b71f3d572fed04c8d40c5cb10ff75e6d87d9df6fbd53f0468c2905053"
+      },
+      {
+        "apk_entry": "assets/chimera-modules/GoogleCertificates.apk",
+        "name": "GoogleCertificates.apk",
+        "sha256": "970acbdc633b3d80fe8c930e40a4914bd53580bcbbde17285b0c763313eed643",
+        "bytes": 250847,
+        "module_signer_sha256": "7ce83c1b71f3d572fed04c8d40c5cb10ff75e6d87d9df6fbd53f0468c2905053"
+      },
+      {
+        "apk_entry": "assets/chimera-modules/MapsDynamite.apk",
+        "name": "MapsDynamite.apk",
+        "sha256": "7969cdc07a6bb3d400592a4bf184d0e2111084b489dff649f3b0947aacf96d26",
+        "bytes": 2201456,
+        "module_signer_sha256": "7ce83c1b71f3d572fed04c8d40c5cb10ff75e6d87d9df6fbd53f0468c2905053"
+      },
+      {
+        "apk_entry": "assets/chimera-modules/MeasurementDynamite.apk",
+        "name": "MeasurementDynamite.apk",
+        "sha256": "a3094e53da115ec5696e6e0559c81eea44ef14e4800161d8d2d6295af776f514",
+        "bytes": 390174,
+        "module_signer_sha256": "7ce83c1b71f3d572fed04c8d40c5cb10ff75e6d87d9df6fbd53f0468c2905053"
+      }
+    ],
+    "signed_GMS_container_and_independent_modules_unchanged": true,
+    "data_accounts_not_cleared": true
+  },
+  "tested": {
+    "user_confirmed_Gboard_typing": true,
+    "user_confirmed_original_WiFi_network_and_browsing": true,
+    "wlan_bound_internet_ping": "2 of2 received,0%loss (Trial20)",
+    "user_confirmed_Google_email_screen_remains_open": true,
+    "Google_account_signin_not_performed_by_agent": true,
+    "Google_data_not_cleared": true,
+    "Google_same_version_updated_system_APK_present": true,
+    "fresh_factory_GMS_layout_not_tested_with_new_userdata": true,
+    "camera_metadata_not_allocated_after_fix": 0,
+    "WebView_camera_NPE_count_this_boot": 0,
+    "WebView_JNI_fatal_count_this_boot": 0
+  },
+  "static_files": [
+    {
+      "asset": "files/system/system/etc/init/ace3v-port.rc",
+      "path": "system/system/etc/init/ace3v-port.rc",
+      "sha256": "558c5aab1fb6a621f802e5932ae13d9bcc2b9497713ceddddd949156b5a862f5",
+      "install": true
+    },
+    {
+      "asset": "files/system/system/etc/init/miui14-dsu-compat.rc",
+      "path": "system/system/etc/init/miui14-dsu-compat.rc",
+      "sha256": "cf952a3f050e958f5681de4457784988cbb1e4c2fcb6f00d56202746ccb0a6fd",
+      "install": true
+    },
+    {
+      "asset": "files/system/system/etc/init/miui14-quiet-boot.rc",
+      "path": "system/system/etc/init/miui14-quiet-boot.rc",
+      "sha256": "c020ab84aee65de48bc96c01d54c6c143ee67dbb3db313fb93e1b25552c720fb",
+      "install": true
+    },
+    {
+      "asset": "files/system/system/framework/ace3v-hardware.jar",
+      "path": "system/system/framework/ace3v-hardware.jar",
+      "sha256": "d329104f643b535011f3f1f86e06013784298c19069be316447b25bd7501eb78",
+      "install": true
+    },
+    {
+      "asset": "files/vendor/etc/vintf/manifest/ace3v-com.google.android.widevine.xml",
+      "path": "vendor/etc/vintf/manifest/ace3v-com.google.android.widevine.xml",
+      "sha256": "489d6eb31ca708a28b722d9f13d7bf789f3e618bca844062f87a45b407aefd5b",
+      "install": true,
+      "label": "vendor_configs_file"
+    },
+    {
+      "asset": "port.cil",
+      "sha256": "31b7aa07856c5acaacc3a256533452f85d9e77a8ddb2ab197e71368cd6ec82f8",
+      "install": false
+    },
+    {
+      "asset": "perfservice.cil",
+      "sha256": "2e0fe5be70964a4f6286e55e43c5392488bf6aea8537db898d49378e23519c0c",
+      "install": false
+    },
+    {
+      "asset": "vendor.build.prop",
+      "sha256": "13f853cb49dabf2a86dc46529b144b5edc4a1111a56796fe67b35fa3b98312c0",
+      "install": false
+    }
+  ],
+  "boot_adb_verified_sha256": "a0d233aa5dc376df400bb7e2fef39be41fec479615ee4a071cdca604b82cd574"
+}

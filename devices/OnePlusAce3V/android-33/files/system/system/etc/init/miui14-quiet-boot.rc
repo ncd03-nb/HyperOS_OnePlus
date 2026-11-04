@@ -1,0 +1,10 @@
+# Native MIUI startup music repeatedly fails opening the old DSP audio graph.
+# Keep the boot animation; suppress only its optional audio playback.
+on early-init
+    setprop persist.sys.bootanim.play_sound false
+
+on post-fs-data
+    setprop persist.sys.bootanim.play_sound false
+
+on property:persistent_properties.ready=true
+    setprop persist.sys.bootanim.play_sound false

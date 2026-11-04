@@ -1,0 +1,38 @@
+{
+  "engine": "Unicorn executes whole patched ARM64 method prologue/body/epilogue; legacy callee argument/status boundary verified",
+  "tests": [
+    {
+      "state": 9,
+      "network_id": 0,
+      "ssid_bytes": 14,
+      "bssid_bytes": 6,
+      "fils": false,
+      "legacy_arguments_verified": true,
+      "sret_status_preserved": true,
+      "stack_canary_and_callee_saved_registers_preserved": true
+    },
+    {
+      "state": 0,
+      "network_id": -1,
+      "ssid_bytes": 0,
+      "bssid_bytes": 6,
+      "fils": false,
+      "legacy_arguments_verified": true,
+      "sret_status_preserved": true,
+      "stack_canary_and_callee_saved_registers_preserved": true
+    },
+    {
+      "state": 7,
+      "network_id": 42,
+      "ssid_bytes": 3,
+      "bssid_bytes": 6,
+      "fils": true,
+      "legacy_arguments_verified": true,
+      "sret_status_preserved": true,
+      "stack_canary_and_callee_saved_registers_preserved": true
+    }
+  ],
+  "AOSP_struct_offsets_verified_by_stock_readFromParcel_disassembly": true,
+  "donor_callback_stub_wire24_and_signature_verified": true,
+  "other_library_bytes_unchanged": true
+}

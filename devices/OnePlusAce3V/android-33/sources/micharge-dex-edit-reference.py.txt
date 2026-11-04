@@ -1,0 +1,57 @@
+# Reference for the exact DEX edit represented by the hash-guarded delta.
+# Input: original bytes of classes.dex from this profile's miui-framework.jar.
+# Output: d (bytearray); checks guard the audited method layout and changed bytes.
+# Other DEX maps, hidden-API flags, classes and method code remain unchanged.
+import struct, hashlib, zlib
+
+d=bytearray(original)
+def u32(o):return struct.unpack_from('<I',d,o)[0]
+def uleb(o):
+ value=shift=0
+ while True:
+  v=d[o];o+=1;value|=(v&127)<<shift
+  if v<128:return value,o
+  shift+=7
+def string(index):
+ o=u32(u32(60)+index*4);_,o=uleb(o);return d[o:d.index(0,o)].decode()
+def typename(index):return string(u32(u32(68)+index*4))
+empty=next(i for i in range(u32(56)) if string(i)=='');assert empty<65536
+offset=None;method_id=None
+for i in range(u32(96)):
+ cd=u32(100)+i*32
+ if typename(u32(cd))!='Lmiui/util/IMiCharge;':continue
+ p=u32(cd+24);sizes=[]
+ for _ in range(4):n,p=uleb(p);sizes.append(n)
+ for _ in range(sizes[0]+sizes[1]):_,p=uleb(p);_,p=uleb(p)
+ for count in sizes[2:]:
+  index=0
+  for _ in range(count):
+   delta,p=uleb(p);index+=delta;_,p=uleb(p);code,p=uleb(p)
+   mo=u32(92)+index*8
+   if string(u32(mo+4))=='getMiChargePath':assert offset is None;offset=code;method_id=index
+assert offset
+regs,ins,outs,tries,debug,count=struct.unpack_from('<HHHHII',d,offset)
+start=offset+16;words=list(struct.unpack_from('<'+'H'*count,d,start))
+assert words[7]==0x0212 and words[0x2c]==0 and words[0x2b]==0x0207,(offset,words[:12])
+# One extra code unit for const-string is balanced by deleting an existing NOP.
+# The sole forward conditional in the shifted region keeps its relative offset:
+# its new target is the same release() instruction after that redundant NOP.
+new=words[:7]+[0x021a,empty]+words[8:0x2c]+words[0x2d:]
+assert len(new)==count
+struct.pack_into('<'+'H'*count,d,start,*new)
+# Remove stale line metadata only for this one method; every other debug entry
+# and all global hidden-API flags, IDs, maps and class data stay byte-identical.
+struct.pack_into('<I',d,offset+8,0)
+tryoff=start+count*2+(2 if tries and count%2 else 0)
+shifted=0
+for i in range(tries):
+ t=tryoff+i*8;s,n,h=struct.unpack_from('<IHH',d,t)
+ if s==8:
+  assert n==0x2b-8
+  struct.pack_into('<I',d,t,9);shifted+=1
+assert shifted==1
+d[12:32]=hashlib.sha1(d[32:]).digest();struct.pack_into('<I',d,8,zlib.adler32(d[12:])&0xffffffff)
+allowed=set(range(8,32))|set(range(start+14,start+0x2d*2))|set(range(offset+8,offset+12))|set(range(tryoff,tryoff+tries*8))
+changed={i for i,(a,z) in enumerate(zip(original,d)) if a!=z}
+assert changed<=allowed and len(d)==len(original)
+assert struct.unpack_from('<I',d,8)[0]==zlib.adler32(d[12:])&0xffffffff

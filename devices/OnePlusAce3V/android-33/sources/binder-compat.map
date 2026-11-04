@@ -1,0 +1,4 @@
+LIBBINDER_NDK34 {
+  global: AServiceManager_addServiceWithFlags; ABinderProcess_isThreadPoolStarted;
+  local: *;
+};

@@ -1,7 +1,8 @@
 # HyperOS port for OnePlus
 
-An auto-porter that builds a HyperOS ROM for OnePlus phones. It supports
-**HyperOS 1, 2, 3 and 4** as the donor and combines it with a OnePlus stock ROM:
+An auto-porter that builds a Xiaomi ROM for OnePlus phones. It supports
+**MIUI14 Android 13** on Ace 3V and **HyperOS 1, 2, 3 and 4** as the donor,
+combined with a OnePlus stock ROM:
 
 - `vendor` and `odm` come from the **OnePlus stock ROM**, so the hardware stack
   stays OnePlus.
@@ -44,6 +45,16 @@ adding a device is a config file, not a code change.
 | **OnePlus 13** | `PJZ110` | ✅ Fully Supported |
 | **OnePlus 15** | `PLK110` | ⚠️ Supported but untested |
 | **OnePlus Ace 3V** | `PJF110` | HyperOS 1 / Android 14 and HyperOS 3 / Android 16 boot confirmed via DSU; Android 17 uses the existing profile |
+
+Ace 3V also has a verified MIUI14 SDK33 profile for the marble
+V14.0.27.0.TMRCNXM donor and SDK34 vendor/ODM. It uses the same build command
+and Actions workflow, retains donor ART/APEX, and needs no `--apex-stock`.
+MIUI14 packages may omit `mi_ext`; newer donors still require it. Boot,
+Gboard typing, Wi-Fi browsing and the Google email login screen were confirmed
+through DSU. SELinux stays Enforcing and boot ADB uses shell UID2000 without
+host authentication. Unknown binary/ABI hashes stop the build before applying
+this profile's patches. See the [SDK33 profile](devices/OnePlusAce3V/android-33/README.md)
+for exact fixes, input hashes, package integrity and testing limits.
 
 ## Requirements
 

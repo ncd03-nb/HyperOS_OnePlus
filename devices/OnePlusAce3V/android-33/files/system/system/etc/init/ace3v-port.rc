@@ -1,0 +1,31 @@
+# Android 14: enforcing SELinux, system UID services, normal ADB shell UID.
+on early-init
+    setenforce 1
+
+on post-fs
+    mkdir /mnt/vendor 0755 root root
+    symlink /mi_ext /mnt/vendor/mi_ext
+
+service ace3v-provision /system/bin/ace3v-hardware /system/bin Ace3vHardware provision
+    user system
+    group system
+    seclabel u:r:ace3v_port:s0
+    setenv CLASSPATH /system/framework/ace3v-hardware.jar
+    disabled
+    oneshot
+
+service ace3v-alert-slider /system/bin/ace3v-hardware /system/bin Ace3vHardware slider
+    class late_start
+    user system
+    group system input audio
+    seclabel u:r:ace3v_port:s0
+    setenv CLASSPATH /system/framework/ace3v-hardware.jar
+    disabled
+
+on property:init.svc.zygote=running
+    start ace3v-provision
+
+on property:sys.boot_completed=1
+    setprop sys.haptic.motor linear
+    start ace3v-alert-slider
+    start ace3v-provision
