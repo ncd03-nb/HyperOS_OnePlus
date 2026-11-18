@@ -1,0 +1,34 @@
+{
+  "hyperos_version": "OS3.0.310.0.WMCCNXM",
+  "vendor_composer_sha256": "04eaaf2aad8aa3223f6b13e91a1b69c03e1fff28492bd24a931a71088fd8e0f1",
+  "geometry": {
+    "persist.vendor.sys.fp.fod.location.X_Y": "523,2432",
+    "persist.vendor.sys.fp.fod.size.width_height": "195,195"
+  },
+  "patches": [
+    {
+      "path": "system_ext/priv-app/MiuiSystemUI/MiuiSystemUI.apk",
+      "before_sha256": "3ee54ced6642dac75e4c2fcb31ec02ebcc3be69ca3eca13bf7b86661679ecf68",
+      "after_sha256": "b4cddf4531cc78b1523b70c0529da4c6465b87af8164884a55b09dc02fc17128",
+      "after_bytes": 43083996,
+      "patch": "MiuiSystemUI.apk.bsdiff",
+      "patch_sha256": "8ae0ebcec3c087a23fb93b34fb6a50308e69094030262e5470a585bf61fb8f8a"
+    },
+    {
+      "path": "system_ext/framework/miui-services.jar",
+      "before_sha256": "17e76da021fe7caa33b17ecd7a5aa0dab5c7c9bd7b8fc29e3c837e70d886517a",
+      "after_sha256": "73847ddaf14b3841647904a3fcb018858debb8f087de1f0eced7627cfbd47aab",
+      "after_bytes": 11195745,
+      "patch": "miui-services.jar.bsdiff",
+      "patch_sha256": "4adec0c16435a3789d025d5a568adca8b4ebfbe4c243913ca02c9f1197de69a9"
+    },
+    {
+      "path": "system_ext/lib64/libsurfaceflinger.so",
+      "before_sha256": "54a12b2cabae703e5080250ca4d3739959e851cd5c9661af60e3b6f00e6261cb",
+      "after_sha256": "91bd3be5f3fb0817f49fcf723b007b5856a11109cac82a2a45ac9fb989ed8844",
+      "after_bytes": 11201792,
+      "patch": "libsurfaceflinger.so.bsdiff",
+      "patch_sha256": "0f92517d46fb7dc37eac720a2b4b6ce5020cd07d59997e905f9275e23f2c9c43"
+    }
+  ]
+}

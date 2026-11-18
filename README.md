@@ -281,6 +281,13 @@ moves the complete `pangu` directory, replaces `system_ext` APEX from matching
 stock, compiles the compatibility policy, and applies the setup flow.
 These changes are selected by donor SDK, not the ROM name.
 
+Ace 3V SDK36 enables optical fingerprint enrollment and screen unlock with
+Local HBM for the verified fuxi HyperOS 3 build `OS3.0.310.0.WMCCNXM`. The
+bridge uses the OnePlus touch HAL and lights the sensor area only during a
+touch after boot. The build checks the donor SystemUI, framework and
+SurfaceFlinger and the stock OnePlus composer by SHA-256. The build report
+records whether it applied the profile or skipped it for differing inputs.
+
 Ace 3V SDK34-36 share one no-auth boot ADB installer in `lib/port_compat.py`,
 used by both `port.sh` and Actions. It keeps `ro.secure=1`, `ro.debuggable=0`
 and shell UID2000, even with the legacy `--force-adb` flag. SDK34/35 retain

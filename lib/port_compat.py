@@ -1332,6 +1332,9 @@ def finish(root, device, stock, assets, adb=False, compiler='secilc'):
         odm_meta.save()
         report['boot_adb'] = install_noauth_boot_adb(root, assets)
         if ace16:
+            from a16_fingerprint import install as install_a16_fingerprint
+            report['fingerprint'] = install_a16_fingerprint(
+                root, profile / 'fingerprint', sys.modules[__name__])
             report['boringssl_reboot_guards_removed'] = clean_crypto(root)
             report['boringssl_services_with_suppressed_guards'] = sum(
                 len(re.findall(r'^service boringssl_self_test\w+ ', (root / relative).read_text('utf-8'), re.M))
