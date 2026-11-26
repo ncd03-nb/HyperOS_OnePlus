@@ -563,13 +563,16 @@ def install_a15_privapp_permissions(root, profile):
             'sha256': hashlib.sha256(target.read_bytes()).hexdigest()}
 
 
+def is_hyperos3_sdk36(root, props):
+    version = props.get('ro.mi.os.version.incremental', '')
+    major = props.get('ro.mi.os.version.code')
+    return sdk(root) == 36 and (major == '3' or (not major and version.startswith('OS3.')))
+
+
 def install_hyperos3_privapp_permissions(root):
     """Fill the observed HyperOS 3 boot blockers on the product partition."""
     props = properties(root / 'product/etc/build.prop')
-    version = props.get('ro.mi.os.version.incremental', '')
-    major = props.get('ro.mi.os.version.code')
-    hyperos3 = major == '3' or (not major and version.startswith('OS3.'))
-    if sdk(root) != 36 or not hyperos3:
+    if not is_hyperos3_sdk36(root, props):
         return {'installed': False, 'reason': 'Requires HyperOS 3 Android 16'}
 
     applications = {
@@ -578,12 +581,30 @@ def install_hyperos3_privapp_permissions(root):
             'GET_ACCOUNTS_PRIVILEGED', 'INTERACT_ACROSS_USERS', 'MOUNT_UNMOUNT_FILESYSTEMS',
             'STATUS_BAR', 'WRITE_SECURE_SETTINGS')),
     }
-    relative = 'product/etc/permissions/privapp-permissions-ace3v-hyperos3.xml'
+    return install_partition_privapp_permissions(root, 'product', 'ace3v-hyperos3', applications)
+
+
+def install_xiaomieu_privapp_permissions(root, profile):
+    """Select the Xiaomi.eu-specific allowlist without relying on a regional version suffix."""
+    props = properties(root / 'product/etc/build.prop')
+    mod_device = props.get('ro.product.mod_device', '').lower().split('_')
+    if not is_hyperos3_sdk36(root, props) or not (
+            props.get('ro.xiaomi.eu.ota_device') or 'xiaomieu' in mod_device):
+        return {'installed': False, 'reason': 'Requires Xiaomi.eu HyperOS 3 Android 16'}
+    applications = json.loads((profile / 'xiaomieu_privapp.json').read_text('utf-8'))
+    partitions = {part: install_partition_privapp_permissions(root, part, 'ace3v-hyperos3-eu', apps)
+                  for part, apps in applications.items()}
+    return {'installed': any(entry['installed'] for entry in partitions.values()),
+            'partitions': partitions}
+
+
+def install_partition_privapp_permissions(root, part, name, applications):
+    relative = f'{part}/etc/permissions/privapp-permissions-{name}.xml'
     target = root / relative
-    product = root / 'product'
+    partition = root / part
     covered = set()
     for directory in ('etc/permissions', 'etc/sysconfig'):
-        for path in (product / directory).glob('*.xml'):
+        for path in (partition / directory).glob('*.xml'):
             if path == target:
                 continue
             try:
@@ -602,7 +623,7 @@ def install_hyperos3_privapp_permissions(root):
     output = ET.Element('permissions')
     grants = []
     for package, (folder, names) in applications.items():
-        if not any(apk.is_file() for apk in (product / 'priv-app' / folder).glob('*.apk')):
+        if not any(apk.is_file() for apk in (partition / 'priv-app' / folder).glob('*.apk')):
             continue
         missing = ['android.permission.' + name for name in names
                    if (package, 'android.permission.' + name) not in covered]
@@ -615,17 +636,17 @@ def install_hyperos3_privapp_permissions(root):
     if not grants:
         if target.exists():
             target.unlink()
-            meta = Metadata(root, 'product')
+            meta = Metadata(root, part)
             meta.fs.pop(relative, None)
             meta.ctx.pop(relative, None)
             meta.save()
-        return {'installed': False, 'reason': 'No missing permissions for matching product apps'}
+        return {'installed': False, 'reason': 'No missing permissions for matching privileged apps'}
 
     ET.indent(output, space='    ')
     write(target, '<?xml version="1.0" encoding="utf-8"?>\n'
           + ET.tostring(output, encoding='unicode') + '\n')
-    meta = Metadata(root, 'product')
-    meta.pin(relative.removeprefix('product/'))
+    meta = Metadata(root, part)
+    meta.pin(relative.removeprefix(part + '/'))
     meta.save()
     return {'installed': True, 'path': relative, 'grants': grants}
 
@@ -1400,6 +1421,7 @@ def finish(root, device, stock, assets, adb=False, compiler='secilc'):
         report['boot_adb'] = install_noauth_boot_adb(root, assets)
         if ace16:
             report['privapp_permissions'] = install_hyperos3_privapp_permissions(root)
+            report['xiaomieu_privapp_permissions'] = install_xiaomieu_privapp_permissions(root, profile)
             from a16_fingerprint import install as install_a16_fingerprint
             report['fingerprint'] = install_a16_fingerprint(
                 root, profile / 'fingerprint', sys.modules[__name__])

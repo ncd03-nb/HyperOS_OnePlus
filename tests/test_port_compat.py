@@ -315,6 +315,41 @@ class PortFlowTests(unittest.TestCase):
         self.assertFalse(target.exists())
         self.assertNotIn(report['path'], port.Metadata(self.root, 'product').fs)
 
+    def test_xiaomieu_privapp_profile_is_separate_and_partition_scoped(self):
+        stock = Path(self.tmp.name) / 'stock'
+        fixture(stock, 36)
+        profile = REPO / 'devices/OnePlusAce3V/android-36'
+        applications = json.loads((profile / 'xiaomieu_privapp.json').read_text())
+        for flavor in ('cn', 'xiaomieu'):
+            with self.subTest(flavor=flavor):
+                root = Path(self.tmp.name) / flavor
+                fixture(root, 36)
+                port.assemble(root, True)
+                props = {'ro.mi.os.version.incremental': 'OS3.0.310.0.WMCCNXM'}
+                if flavor == 'xiaomieu':
+                    props['ro.product.mod_device'] = 'another_xiaomieu_global'
+                port.set_props(root / 'product/etc/build.prop', props)
+                for part, apps in applications.items():
+                    for folder, _ in apps.values():
+                        port.write(root / part / 'priv-app' / folder / 'source.apk', 'preloaded')
+
+                with patch.object(port, 'compile_policy', return_value={}):
+                    report = port.finish(root, 'OnePlusAce3V', stock, REPO / 'fixes')
+                eu = report['xiaomieu_privapp_permissions']
+                for part, count in (('product', 68), ('system_ext', 1)):
+                    target = root / part / 'etc/permissions/privapp-permissions-ace3v-hyperos3-eu.xml'
+                    self.assertEqual(target.exists(), flavor == 'xiaomieu')
+                    if flavor == 'xiaomieu':
+                        grants = eu['partitions'][part]['grants']
+                        self.assertEqual(len(grants), count)
+                        self.assertEqual({entry['package'] for entry in grants}, set(applications[part]))
+                        meta = port.Metadata(root, part)
+                        relative = target.relative_to(root).as_posix()
+                        self.assertEqual(meta.fs[relative], ['0', '0', '0644'])
+                        self.assertEqual(meta.ctx[relative], ['u:object_r:system_file:s0'])
+                    else:
+                        self.assertFalse(eu['installed'])
+
     def test_a14_abi_alignment_is_idempotent_and_rejects_other_hardware(self):
         path = self.root / 'system/system/build.prop'
         port.align_a14_arm64_abi(self.root)

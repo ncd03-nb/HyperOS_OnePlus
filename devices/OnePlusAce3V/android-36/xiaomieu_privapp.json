@@ -1,0 +1,140 @@
+{
+  "product": {
+    "com.android.calendar": [
+      "Calendar",
+      [
+        "GET_ACCOUNTS_PRIVILEGED",
+        "INTERACT_ACROSS_USERS",
+        "MOUNT_UNMOUNT_FILESYSTEMS",
+        "STATUS_BAR",
+        "WRITE_SECURE_SETTINGS"
+      ]
+    ],
+    "com.android.soundrecorder": [
+      "SoundRecorder",
+      [
+        "CALL_AUDIO_INTERCEPTION",
+        "CAPTURE_AUDIO_OUTPUT",
+        "CAPTURE_VOICE_COMMUNICATION_OUTPUT",
+        "FORCE_STOP_PACKAGES",
+        "INTERACT_ACROSS_USERS",
+        "MODIFY_PHONE_STATE",
+        "START_ACTIVITIES_FROM_BACKGROUND"
+      ]
+    ],
+    "com.android.vending": [
+      "Phonesky",
+      [
+        "READ_SYSTEM_GRAMMATICAL_GENDER"
+      ]
+    ],
+    "com.google.android.apps.restore": [
+      "GoogleRestore",
+      [
+        "READ_WIFI_CREDENTIAL"
+      ]
+    ],
+    "com.google.android.gms": [
+      "GmsCore",
+      [
+        "CONFIGURE_FACTORY_RESET_PROTECTION",
+        "EMERGENCY_INSTALL_PACKAGES",
+        "LOG_COMPAT_CHANGE",
+        "MANAGE_ADVANCED_PROTECTION_MODE",
+        "MANAGE_INTRUSION_DETECTION_STATE",
+        "PACKET_KEEPALIVE_OFFLOAD",
+        "PREPARE_FACTORY_RESET",
+        "READ_COMPAT_CHANGE_CONFIG",
+        "READ_DROPBOX_DATA",
+        "READ_INTRUSION_DETECTION_STATE",
+        "READ_OEM_UNLOCK_STATE",
+        "READ_SYSTEM_GRAMMATICAL_GENDER",
+        "SATELLITE_COMMUNICATION",
+        "SETUP_FSVERITY",
+        "SET_BIOMETRIC_DIALOG_ADVANCED",
+        "THREAD_NETWORK_PRIVILEGED",
+        "WRITE_VERIFICATION_STATE_E2EE_CONTACT_KEYS"
+      ]
+    ],
+    "com.google.android.googlequicksearchbox": [
+      "Velvet",
+      [
+        "CAPTURE_AUDIO_OUTPUT",
+        "CAPTURE_MEDIA_OUTPUT"
+      ]
+    ],
+    "com.mi.appfinder": [
+      "AppFinder",
+      [
+        "GLOBAL_SEARCH",
+        "PACKAGE_USAGE_STATS",
+        "READ_SEARCH_INDEXABLES",
+        "READ_WALLPAPER_INTERNAL",
+        "STOP_APP_SWITCHES",
+        "TETHER_PRIVILEGED",
+        "WRITE_SECURE_SETTINGS"
+      ]
+    ],
+    "com.miui.accessibility": [
+      "MiuiAccessibility",
+      [
+        "CALL_AUDIO_INTERCEPTION",
+        "CAPTURE_AUDIO_OUTPUT",
+        "CAPTURE_VOICE_COMMUNICATION_OUTPUT",
+        "MODIFY_AUDIO_ROUTING",
+        "MODIFY_PHONE_STATE",
+        "READ_PRIVILEGED_PHONE_STATE",
+        "START_ACTIVITIES_FROM_BACKGROUND",
+        "WRITE_SECURE_SETTINGS"
+      ]
+    ],
+    "com.miui.cleaner": [
+      "CleanMaster",
+      [
+        "ACCESS_MTP",
+        "CLEAR_APP_CACHE",
+        "DELETE_PACKAGES",
+        "PACKAGE_USAGE_STATS",
+        "REAL_GET_TASKS",
+        "WRITE_SECURE_SETTINGS"
+      ]
+    ],
+    "com.miui.euicc": [
+      "EsimLPA",
+      [
+        "MODIFY_PHONE_STATE",
+        "READ_PRIVILEGED_PHONE_STATE",
+        "SECURE_ELEMENT_PRIVILEGED_OPERATION",
+        "START_ACTIVITIES_FROM_BACKGROUND",
+        "START_FOREGROUND_SERVICES_FROM_BACKGROUND",
+        "WRITE_EMBEDDED_SUBSCRIPTIONS",
+        "WRITE_SECURE_SETTINGS"
+      ]
+    ],
+    "com.miui.weather2": [
+      "Weather",
+      [
+        "SCHEDULE_EXACT_ALARM"
+      ]
+    ],
+    "com.xiaomi.scanner": [
+      "MiuiScanner",
+      [
+        "PACKAGE_USAGE_STATS",
+        "READ_PRIVILEGED_PHONE_STATE",
+        "START_ACTIVITIES_FROM_BACKGROUND",
+        "STATUS_BAR",
+        "SUBSCRIBE_TO_KEYGUARD_LOCKED_STATE",
+        "WRITE_SECURE_SETTINGS"
+      ]
+    ]
+  },
+  "system_ext": {
+    "com.google.android.setupwizard": [
+      "SetupWizard",
+      [
+        "SET_BIOMETRIC_DIALOG_ADVANCED"
+      ]
+    ]
+  }
+}
