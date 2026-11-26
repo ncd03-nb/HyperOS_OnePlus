@@ -563,6 +563,73 @@ def install_a15_privapp_permissions(root, profile):
             'sha256': hashlib.sha256(target.read_bytes()).hexdigest()}
 
 
+def install_hyperos3_privapp_permissions(root):
+    """Fill the observed HyperOS 3 boot blockers on the product partition."""
+    props = properties(root / 'product/etc/build.prop')
+    version = props.get('ro.mi.os.version.incremental', '')
+    major = props.get('ro.mi.os.version.code')
+    hyperos3 = major == '3' or (not major and version.startswith('OS3.'))
+    if sdk(root) != 36 or not hyperos3:
+        return {'installed': False, 'reason': 'Requires HyperOS 3 Android 16'}
+
+    applications = {
+        'com.miui.personalassistant': ('MIUIPersonalAssistant', ('START_ACTIVITIES_FROM_BACKGROUND',)),
+        'com.xiaomi.calendar': ('MiuiCalendar', (
+            'GET_ACCOUNTS_PRIVILEGED', 'INTERACT_ACROSS_USERS', 'MOUNT_UNMOUNT_FILESYSTEMS',
+            'STATUS_BAR', 'WRITE_SECURE_SETTINGS')),
+    }
+    relative = 'product/etc/permissions/privapp-permissions-ace3v-hyperos3.xml'
+    target = root / relative
+    product = root / 'product'
+    covered = set()
+    for directory in ('etc/permissions', 'etc/sysconfig'):
+        for path in (product / directory).glob('*.xml'):
+            if path == target:
+                continue
+            try:
+                xml = ET.parse(path).getroot()
+            except ET.ParseError:
+                # Android also skips malformed system configuration XML files.
+                continue
+            if xml.tag not in ('permissions', 'config'):
+                continue
+            for node in xml.findall('privapp-permissions'):
+                package = node.get('package')
+                if package in applications:
+                    covered.update((package, entry.get('name')) for entry in node
+                                   if entry.tag in ('permission', 'deny-permission'))
+
+    output = ET.Element('permissions')
+    grants = []
+    for package, (folder, names) in applications.items():
+        if not any(apk.is_file() for apk in (product / 'priv-app' / folder).glob('*.apk')):
+            continue
+        missing = ['android.permission.' + name for name in names
+                   if (package, 'android.permission.' + name) not in covered]
+        if missing:
+            node = ET.SubElement(output, 'privapp-permissions', {'package': package})
+            for permission in missing:
+                ET.SubElement(node, 'permission', {'name': permission})
+                grants.append({'package': package, 'permission': permission})
+
+    if not grants:
+        if target.exists():
+            target.unlink()
+            meta = Metadata(root, 'product')
+            meta.fs.pop(relative, None)
+            meta.ctx.pop(relative, None)
+            meta.save()
+        return {'installed': False, 'reason': 'No missing permissions for matching product apps'}
+
+    ET.indent(output, space='    ')
+    write(target, '<?xml version="1.0" encoding="utf-8"?>\n'
+          + ET.tostring(output, encoding='unicode') + '\n')
+    meta = Metadata(root, 'product')
+    meta.pin(relative.removeprefix('product/'))
+    meta.save()
+    return {'installed': True, 'path': relative, 'grants': grants}
+
+
 def install_a15_permission_role_overlay(root, profile):
     """Guard the unsupported role permission and preserve role dialog resources."""
     if sdk(root) != 35:
@@ -1332,6 +1399,7 @@ def finish(root, device, stock, assets, adb=False, compiler='secilc'):
         odm_meta.save()
         report['boot_adb'] = install_noauth_boot_adb(root, assets)
         if ace16:
+            report['privapp_permissions'] = install_hyperos3_privapp_permissions(root)
             from a16_fingerprint import install as install_a16_fingerprint
             report['fingerprint'] = install_a16_fingerprint(
                 root, profile / 'fingerprint', sys.modules[__name__])

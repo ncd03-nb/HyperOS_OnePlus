@@ -276,6 +276,45 @@ class PortFlowTests(unittest.TestCase):
         self.assertFalse((self.root / relative).exists())
         self.assertEqual((self.root / 'config/product_fs_config').read_bytes(), metadata)
 
+    def test_hyperos3_privapp_allowlist_across_regions_preserves_existing_decisions(self):
+        product = self.root / 'product'
+        props = product / 'etc/build.prop'
+        port.set_props(self.root / 'system/system/build.prop', {
+            'ro.build.version.sdk': '36', 'ro.control_privapp_permissions': 'enforce'})
+        for folder in ('MIUIPersonalAssistant', 'MiuiCalendar'):
+            port.write(product / 'priv-app' / folder / 'renamed-variant.apk', 'stub')
+
+        for region in ('WOCTWXM', 'WMCMIXM'):
+            with self.subTest(region=region):
+                port.set_props(props, {'ro.mi.os.version.incremental': 'OS3.0.303.0.' + region + ' | port'})
+                report = port.install_hyperos3_privapp_permissions(self.root)
+                self.assertEqual(len(report['grants']), 6)
+                target = self.root / report['path']
+                meta = port.Metadata(self.root, 'product')
+                self.assertEqual(meta.fs[report['path']], ['0', '0', '0644'])
+                self.assertEqual(meta.ctx[report['path']], ['u:object_r:system_file:s0'])
+
+        config = product / 'etc/sysconfig/permissions-existing.xml'
+        existing = ('<config><privapp-permissions package="com.xiaomi.calendar">'
+                    '<permission name="android.permission.STATUS_BAR"/>'
+                    '<deny-permission name="android.permission.WRITE_SECURE_SETTINGS"/>'
+                    '</privapp-permissions></config>')
+        port.write(config, existing)
+        report = port.install_hyperos3_privapp_permissions(self.root)
+        granted = {entry['permission'] for entry in report['grants']}
+        self.assertEqual(len(granted), 4)
+        self.assertNotIn('android.permission.STATUS_BAR', granted)
+        self.assertNotIn('android.permission.WRITE_SECURE_SETTINGS', granted)
+        self.assertEqual(config.read_text(), existing)
+        self.assertEqual(port.properties(self.root / 'system/system/build.prop')[
+            'ro.control_privapp_permissions'], 'enforce')
+
+        shutil.rmtree(product / 'priv-app/MIUIPersonalAssistant')
+        shutil.rmtree(product / 'priv-app/MiuiCalendar')
+        self.assertFalse(port.install_hyperos3_privapp_permissions(self.root)['installed'])
+        self.assertFalse(target.exists())
+        self.assertNotIn(report['path'], port.Metadata(self.root, 'product').fs)
+
     def test_a14_abi_alignment_is_idempotent_and_rejects_other_hardware(self):
         path = self.root / 'system/system/build.prop'
         port.align_a14_arm64_abi(self.root)
